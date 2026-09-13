@@ -6,12 +6,12 @@ import {
   resolvePendingEvent,
   randomSeed,
 } from '../game';
-import type { EventChoice, GameAction, GameState, NodeId } from '../game/types';
+import type { EventChoice, ForecastView, GameAction, GameState, NodeId } from '../game/types';
 import StartScreen from '../components/StartScreen';
 import TopBar from '../components/TopBar';
 import MapView from '../components/MapView';
 import SidePanel from '../components/SidePanel';
-import EventModal from '../components/EventModal';
+import EventModal, { ForecastModal } from '../components/EventModal';
 import Settlement from '../components/Settlement';
 
 /**
@@ -20,8 +20,10 @@ import Settlement from '../components/Settlement';
  */
 export default function GamePage() {
   const [game, setGame] = useState<GameState | null>(null);
+  const [dismissedForecast, setDismissedForecast] = useState<ForecastView | null>(null);
 
   const startGame = useCallback((seed: string) => {
+    setDismissedForecast(null);
     setGame(createNewGame(seed));
   }, []);
 
@@ -57,6 +59,12 @@ export default function GamePage() {
       </div>
       {game.pendingEvents.length > 0 && (
         <EventModal game={game} onChoice={handleChoice} />
+      )}
+      {game.pendingEvents.length === 0 && game.lastForecast && game.lastForecast !== dismissedForecast && (
+        <ForecastModal
+          game={game}
+          onClose={() => setDismissedForecast(game.lastForecast)}
+        />
       )}
     </div>
   );

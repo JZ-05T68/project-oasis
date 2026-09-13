@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { gameConfig, weatherNames } from '../game';
 import type { EventChoice, GameState, WeatherType } from '../game/types';
 
@@ -7,29 +6,13 @@ interface Props {
   onChoice: (eventId: string, choice: EventChoice) => void;
 }
 
-/** 待决事件 Modal：一次只显示队首事件 */
+/** 待决事件 Modal：一次只显示队首事件（天气预报结果由 GamePage 单独渲染） */
 export default function EventModal({ game, onChoice }: Props) {
   const event = game.pendingEvents[0];
-  const [forecastOpen, setForecastOpen] = useState(false);
-
-  // 天气预报查看结果展示
-  if (forecastOpen && game.lastForecast) {
-    return (
-      <ForecastModal
-        game={game}
-        onClose={() => {
-          setForecastOpen(false);
-        }}
-      />
-    );
-  }
   if (!event) return null;
 
   const choice = (c: EventChoice) => {
     onChoice(event.id, c);
-    if (event.kind === 'FORECAST_OFFER' && 'accept' in c && c.accept) {
-      setForecastOpen(true);
-    }
   };
 
   switch (event.kind) {
@@ -165,7 +148,8 @@ function Modal({ title, desc, children }: { title: string; desc: string; childre
   );
 }
 
-function ForecastModal({ game, onClose }: { game: GameState; onClose: () => void }) {
+/** 天气预报结果展示（由 GamePage 根据 lastForecast 渲染） */
+export function ForecastModal({ game, onClose }: { game: GameState; onClose: () => void }) {
   const view = game.lastForecast!;
   return (
     <div className="modal-backdrop">

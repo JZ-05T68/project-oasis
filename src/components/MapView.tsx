@@ -109,6 +109,7 @@ export default function MapView({ game, onMove }: Props) {
             <g
               key={n.id}
               className={`map-node ${isLegal ? 'clickable' : ''}`}
+              data-nodeid={n.id}
               onClick={isLegal ? () => onMove(n.id) : undefined}
             >
               {isLegal && (
