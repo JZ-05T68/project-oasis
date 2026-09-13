@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { worldMap } from '../src/game/map/worldMap';
 import { existsPathExcluding, shortestPath } from '../src/game/map/graph';
-import { performMove, getLegalMoves } from '../src/game';
+import { getLegalMoves } from '../src/game';
 import { newGame, calmOverrides, walk } from './helpers';
 import { gameConfig } from '../src/game/config/gameConfig';
 
@@ -88,7 +88,7 @@ describe('固定地图：路线难度评分校准', () => {
       let s = newGame('route-validity', calmOverrides(worldMap));
       for (const step of route) {
         expect(getLegalMoves(s)).toContain(step);
-        s = performMove(s, step);
+        s = walk(s, [step]);
       }
     }
   });

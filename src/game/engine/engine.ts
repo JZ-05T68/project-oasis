@@ -100,6 +100,14 @@ function assertOngoing(state: GameState): void {
   }
 }
 
+/** 移动 / 行动前：对局进行中，且没有等待决断的事件 */
+function assertFreeToAct(state: GameState): void {
+  assertOngoing(state);
+  if (state.pendingEvents.length > 0) {
+    throw new GameError('EVENT_PENDING', '有待处理的事件需要先做出选择');
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* 开局                                                                */
 /* ------------------------------------------------------------------ */
@@ -194,7 +202,7 @@ export function getTerrainName(state: GameState, nodeId: NodeId): string {
 /* ------------------------------------------------------------------ */
 
 export function performMove(state: GameState, toNodeId: NodeId): GameState {
-  assertOngoing(state);
+  assertFreeToAct(state);
   if (state.phase !== 'OUTBOUND' && state.phase !== 'RETURN') {
     throw new GameError('PHASE_NO_MOVE', '当前阶段不能移动');
   }
@@ -231,6 +239,9 @@ export function performMove(state: GameState, toNodeId: NodeId): GameState {
   // 进入矿区入口 = 进入采矿阶段（宝库无天气无遭遇）
   if (node.terrain === 'MINE' && s.phase === 'OUTBOUND') {
     enterMine(s);
+    if (s.status === 'ONGOING' && s.pendingEvents.length === 0) {
+      finalizeTurn(s); // 进矿当天也是正常行动日，同样触发 20:00 询问
+    }
     return s;
   }
 
@@ -460,7 +471,7 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
 }
 
 export function performAction(state: GameState, action: GameAction): GameState {
-  assertOngoing(state);
+  assertFreeToAct(state);
   const s = clone(state);
   const node = s.map.nodes[s.position];
 
