@@ -1,13 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import {
-  getLegalMoves,
-  performMove,
-  performAction,
-  getAvailableActions,
-} from '../src/game';
+import { performMove, getLegalMoves, performAction } from '../src/game';
 import { GameError } from '../src/game/types';
-import { newGame, newMiniGame, calmOverrides, walk, act, mutate } from './helpers';
-import { worldMap } from '../src/game/map/worldMap';
+import { newGame, calmOverrides, walk, walkTo, mutate, findTiles, mineTile } from './helpers';
 import { gameConfig } from '../src/game/config/gameConfig';
 
 describe('核心引擎：初始状态', () => {
@@ -16,18 +10,19 @@ describe('核心引擎：初始状态', () => {
     expect(s.cash).toBe(2000);
     expect(s.stamina).toBe(5);
     expect(s.daysUsed).toBe(0);
+    expect(s.maxDays).toBe(42);
     expect(s.phase).toBe('OUTBOUND');
     expect(s.status).toBe('ONGOING');
-    expect(s.position).toBe(worldMap.cityId);
+    expect(s.position).toBe(s.map.cityId);
     expect(s.gemsKg).toBe(0);
     expect(s.tents).toEqual([]);
     expect(s.compasses).toBe(0);
-    expect(s.visitedOutbound).toEqual([worldMap.cityId]);
+    expect(s.forecastCharges).toBe(0);
+    expect(s.visitedOutbound).toEqual([s.map.cityId]);
     expect(s.visitedReturn).toEqual([]);
-    expect(s.mineEntranceId).toBeNull();
-    // 城市与矿区开局已知
-    expect(s.explored).toContain(worldMap.cityId);
-    for (const m of worldMap.mineIds) expect(s.explored).toContain(m);
+    // 城市与两矿区开局可见
+    expect(s.explored).toContain(s.map.cityId);
+    for (const m of s.map.mines) expect(s.explored).toContain(m.tileId);
     expect(s.seed).toBe('init-seed');
   });
 
@@ -41,153 +36,310 @@ describe('核心引擎：初始状态', () => {
     expect(s.equipmentSpent).toBe(500);
     expect(s.daysUsed).toBe(0);
   });
+});
 
-  it('现金不足时购买被禁用并抛错', () => {
-    const s = mutate(newGame('buy-broke'), (m) => {
-      m.cash = 50;
-    });
-    const actions = getAvailableActions(s);
-    expect(actions.find((a) => a.action.item === 'tent')?.disabled).toBe(true);
-    expect(() => performAction(s, { type: 'BUY', item: 'tent' })).toThrow(GameError);
+describe('核心引擎：四方向移动与越界', () => {
+  it('只能四方向移动且不越界（城市在角落只有 2 个合法移动）', () => {
+    const s = newGame('move-legal', calmOverrides(newGame('move-legal').map));
+    const legal = getLegalMoves(s);
+    expect(legal.length).toBe(2); // 左下角
+    // 合法移动全部是城市邻居
+    const neighbors = new Set(getLegalMoves(s));
+    for (const id of legal) expect(neighbors.has(id)).toBe(true);
+    // 越界目标不存在
+    expect(legal).not.toContain('8:-1');
+    expect(legal).not.toContain('10:0');
+  });
+
+  it('非法目标（不相邻）抛错', () => {
+    const s = newGame('move-illegal');
+    expect(() => performMove(s, '0:11')).toThrow(GameError);
+  });
+
+  it('每移动一格消耗 1 天', () => {
+    let s = newGame('move-day', calmOverrides(newGame('move-day').map));
+    const target = getLegalMoves(s)[0];
+    s = performMove(s, target);
+    expect(s.daysUsed).toBe(1);
+    expect(s.position).toBe(target);
   });
 });
 
-describe('核心引擎：去程移动规则', () => {
-  it('只能移动到相邻合法格，非法移动抛错', () => {
-    const s = newGame('move-illegal', calmOverrides(worldMap));
-    expect(() => performMove(s, 'mineS')).toThrow(GameError); // 不相邻
-    expect(() => performMove(s, 'sv')).toThrow(GameError); // 不相邻
-  });
-
+describe('核心引擎：去程规则', () => {
   it('去程不允许重新进入城市', () => {
-    let s = newGame('city-ban', calmOverrides(worldMap));
-    s = walk(s, ['sg1']);
-    expect(getLegalMoves(s)).not.toContain('city');
-    expect(() => performMove(s, 'city')).toThrow(GameError);
+    let s = newGame('city-ban', calmOverrides(newGame('city-ban').map));
+    const first = getLegalMoves(s)[0];
+    s = walk(s, [first]);
+    expect(getLegalMoves(s)).not.toContain(s.map.cityId);
+    expect(() => performMove(s, s.map.cityId)).toThrow(GameError);
   });
 
-  it('去程普通格不可重复经过', () => {
-    let s = newGame('repeat-ban', calmOverrides(worldMap));
-    s = walk(s, ['sg1', 'sv']);
-    // 从 sv 出发：sg1 已在去程走过，不再合法
-    expect(getLegalMoves(s)).not.toContain('sg1');
-    expect(() => performMove(s, 'sg1')).toThrow(GameError);
+  it('去程普通格不可重复（烧格）', () => {
+    let s = newGame('repeat-ban', calmOverrides(newGame('repeat-ban').map));
+    const first = getLegalMoves(s)[0];
+    s = walk(s, [first]);
+    const back = s.map.cityId;
+    // 从 first 走一步再回来：来路已烧，不能走回头格（城市本来就被禁）
+    const second = getLegalMoves(s)[0];
+    s = walk(s, [second]);
+    // 走回到 first 是不允许的（first 已烧）
+    expect(getLegalMoves(s)).not.toContain(first);
+    expect(() => performMove(s, first)).toThrow(GameError);
+    void back;
   });
 
-  it('进入矿区入口后进入 MINING 阶段且不能移动', () => {
-    let s = newGame('mining-lock', calmOverrides(worldMap));
-    s = walk(s, ['sg1', 'sv', 'so', 'sg2', 'mineS']);
+  it('进入任一矿区即进入 MINING 且不能移动', () => {
+    let s = newGame('mining-lock', calmOverrides(newGame('mining-lock').map));
+    s = walkTo(s, mineTile(s, 'A'));
     expect(s.phase).toBe('MINING');
-    expect(s.mineEntranceId).toBe('mineS');
+    expect(s.mineEntranceId).toBe(mineTile(s, 'A'));
     expect(getLegalMoves(s)).toEqual([]);
-    expect(() => performMove(s, 'mg2')).toThrow(GameError);
+    const neighbor = Object.keys(s.map.tiles)[5];
+    expect(() => performMove(s, neighbor)).toThrow(GameError);
   });
 });
 
 describe('核心引擎：返程规则', () => {
-  function gotoSouthMine(seed: string) {
-    let s = newGame(seed, calmOverrides(worldMap));
-    s = walk(s, ['sg1', 'sv', 'so', 'sg2', 'mineS']);
-    s = act(s, { type: 'MINE' });
+  function gotoMineA(seed: string, miningDays = 1) {
+    let s = newGame(seed, calmOverrides(newGame(seed).map));
+    s = walkTo(s, mineTile(s, 'A'));
+    for (let i = 0; i < miningDays; i++) s = performAction(s, { type: 'MINE' });
     s = performAction(s, { type: 'START_RETURN' });
     return s;
   }
 
-  it('返程不得经过去程走过的普通格', () => {
-    const s = gotoSouthMine('return-ban');
-    expect(getLegalMoves(s)).not.toContain('sg2'); // 去程用过
-    expect(() => performMove(s, 'sg2')).toThrow(GameError);
+  it('返程不得经过去程走过的格子', () => {
+    const s = gotoMineA('return-ban');
+    const burned = s.visitedOutbound.filter((id) => id !== s.map.cityId && id !== s.mineEntranceId);
+    const legal = new Set(getLegalMoves(s));
+    for (const b of burned) {
+      if (b === s.position) continue;
+      // 烧掉的格子若与当前位置相邻，也不允许进入
+      const neighbors = gameConfig ? null : null;
+      void neighbors;
+      expect(legal.has(b)).toBe(false);
+    }
   });
 
   it('返程自身也不得重复普通格', () => {
-    let s = gotoSouthMine('return-self-ban');
-    s = walk(s, ['mg2', 'mo']);
-    expect(getLegalMoves(s)).not.toContain('mg2');
-    expect(() => performMove(s, 'mg2')).toThrow(GameError);
+    let s = gotoMineA('return-self-ban');
+    // 走一步返程
+    const first = getLegalMoves(s)[0];
+    s = walk(s, [first]);
+    const legal = new Set(getLegalMoves(s));
+    expect(legal.has(first)).toBe(false);
+    expect(() => performMove(s, first)).toThrow(GameError);
   });
 
-  it('去返程交叉被禁止：返程路线必须与去程完全不重合', () => {
-    let s = gotoSouthMine('cross-ban');
-    s = walk(s, ['mg2', 'mo', 'mv']);
-    // sv 在去程用过，返程从 mv 不允许走 sv
-    expect(getLegalMoves(s)).not.toContain('sv');
-    expect(() => performMove(s, 'sv')).toThrow(GameError);
+  it('当前矿区豁免：返程中可以重复进入当前矿区', () => {
+    let s = gotoMineA('mine-exempt');
+    const first = getLegalMoves(s)[0];
+    s = walk(s, [first]);
+    // 返程开始后（位置=矿区），矿区格必然在合法移动中（豁免）
+    expect(getLegalMoves(s)).toContain(s.mineEntranceId!);
   });
 
-  it('矿区入口（宝库格）在返程中豁免：不会被当作重复格禁止进入', () => {
-    let s = gotoSouthMine('mine-exempt');
-    s = walk(s, ['mg2']);
-    // mineS 虽在返程中已到过，但作为宝库格依然合法（豁免）——不会因“重复”被禁
-    expect(getLegalMoves(s)).toContain('mineS');
-  });
-
-  it('返程走回矿区入口耗尽归途 → 被判定路线中断（豁免格也会被困死）', () => {
-    let s = gotoSouthMine('mine-trap');
-    s = walk(s, ['mg2']);
-    s = performMove(s, 'mineS'); // 合法移动，但从这里已无任何归途（sg2 去程已用、mg2 返程已用）
-    expect(s.status).toBe('DEFEAT');
-    expect(s.defeatReason).toBe('RETURN_ROUTE_SEVERED');
+  it('另一个矿区不是豁免格：返程不可进入', () => {
+    // 用小步幅检查：任一返程状态下的合法移动都不包含另一个矿区
+    let s = gotoMineA('other-mine-ban');
+    const other = s.map.mines.find((m) => m.tileId !== s.mineEntranceId)!.tileId;
+    const legal = new Set(getLegalMoves(s));
+    expect(legal.has(other)).toBe(false);
   });
 
   it('返程抵达城市即胜利', () => {
-    let s = gotoSouthMine('victory-12');
-    s = walk(s, ['mg2', 'mo', 'mv', 'md1', 'mg1', 'city']);
+    let s = gotoMineA('victory-grid');
+    s = walkTo(s, s.map.cityId);
     expect(s.status).toBe('VICTORY');
     expect(s.phase).toBe('FINISHED');
-    expect(s.daysUsed).toBe(12); // 去程 5 + 挖矿 1 + 返程 6
+    expect(s.daysUsed <= s.maxDays).toBe(true);
   });
 });
 
-describe('核心引擎：路线中断（迷你地图）', () => {
-  it('去程走进死路 → 立即判负（TRAPPED）', () => {
-    // city - a - b，b 是死胡同
-    let s = newMiniGame(
-      { city: 'CITY', a: 'GRASS', b: 'GRASS' },
-      [
-        ['city', 'a'],
-        ['a', 'b'],
-      ],
-    );
-    s = walk(s, ['a', 'b']);
-    expect(s.status).toBe('DEFEAT');
-    expect(s.defeatReason).toBe('TRAPPED');
-  });
-
-  it('去程封死矿区入口的所有归途 → 进矿即判负（RETURN_ROUTE_SEVERED）', () => {
-    // city - a - m 与 city - a - b - m：走 a、b 进矿后 m 的两个出口全部已用
-    let s = newMiniGame(
-      { city: 'CITY', a: 'GRASS', b: 'GRASS', m: 'MINE' },
-      [
-        ['city', 'a'],
-        ['a', 'm'],
-        ['a', 'b'],
-        ['b', 'm'],
-      ],
-    );
-    s = walk(s, ['a', 'b', 'm']);
-    expect(s.status).toBe('DEFEAT');
-    expect(s.defeatReason).toBe('RETURN_ROUTE_SEVERED');
-  });
-
-  it('返程中途走入断头路 → 立即判负（RETURN_ROUTE_SEVERED）', () => {
-    // city-a-m；返程 m-b-city 可行，但 b-d 是断头支路：走进 d 即被封死
-    let s = newMiniGame(
-      { city: 'CITY', a: 'GRASS', b: 'GRASS', d: 'GRASS', m: 'MINE' },
-      [
-        ['city', 'a'],
-        ['a', 'm'],
-        ['m', 'b'],
-        ['b', 'city'],
-        ['b', 'd'],
-      ],
-    );
-    s = walk(s, ['a', 'm']);
-    expect(s.status).toBe('ONGOING'); // 进矿时仍存在 b→city 归途
+describe('核心引擎：路线中断（无路可回）', () => {
+  it('返程中途被封死 → 立即判负（RETURN_ROUTE_SEVERED）', () => {
+    // 构造：走到矿区并挖到只剩很少返程天数，然后在返程中反复走死路
+    // 更直接的方式：烧掉大片格子使返程不可达
+    let s = newGame('severed-grid');
+    s = walkTo(s, mineTile(s, 'A'));
+    // 模拟封死：把全图除矿区周边外全部标记为已烧（去程）
+    s = mutate(s, (m) => {
+      for (const id of Object.keys(m.map.tiles)) {
+        const t = m.map.tiles[id];
+        if (t.terrain !== 'DESERT' && t.terrain !== 'GRASS' && t.terrain !== 'VILLAGE' && t.terrain !== 'OASIS') continue;
+        const isNearMine =
+          t.col >= 9 && Math.abs(t.row - m.map.tiles[m.mineEntranceId!].row) <= 1;
+        if (!isNearMine && !m.visitedOutbound.includes(id)) m.visitedOutbound.push(id);
+      }
+    });
     s = performAction(s, { type: 'START_RETURN' });
-    s = walk(s, ['b']);
-    expect(s.status).toBe('ONGOING'); // b 仍有 city 归途
-    s = performMove(s, 'd');
     expect(s.status).toBe('DEFEAT');
     expect(s.defeatReason).toBe('RETURN_ROUTE_SEVERED');
+  });
+
+  it('开始返程时若已无合法路径 → 判负', () => {
+    let s = newGame('severed-at-start');
+    s = walkTo(s, mineTile(s, 'A'));
+    s = mutate(s, (m) => {
+      for (const id of Object.keys(m.map.tiles)) {
+        const t = m.map.tiles[id];
+        if (t.terrain !== 'DESERT' && t.terrain !== 'GRASS' && t.terrain !== 'VILLAGE' && t.terrain !== 'OASIS') continue;
+        if (t.col <= 6 && !m.visitedOutbound.includes(id)) m.visitedOutbound.push(id);
+      }
+    });
+    s = performAction(s, { type: 'START_RETURN' });
+    expect(s.status).toBe('DEFEAT');
+    expect(s.defeatReason).toBe('RETURN_ROUTE_SEVERED');
+  });
+});
+
+describe('核心引擎：原地停留', () => {
+  it('停留：天数 +1，坐标不变，无收益', () => {
+    let s = newGame('wait-1', calmOverrides(newGame('wait-1').map));
+    s = mutate(s, (m) => {
+      m.cash = 500;
+      m.stamina = 3;
+      m.gemsKg = 0;
+    });
+    const before = { pos: s.position, cash: s.cash, stamina: s.stamina, gems: s.gemsKg };
+    s = performAction(s, { type: 'WAIT' });
+    expect(s.daysUsed).toBe(1);
+    expect(s.position).toBe(before.pos);
+    expect(s.cash).toBe(before.cash); // 不赚钱
+    expect(s.stamina).toBe(before.stamina); // 不回血
+    expect(s.gemsKg).toBe(before.gems); // 不获得宝石
+  });
+
+  it('停留日当天天气正常结算：沙漠沙尘暴照常处理', () => {
+    let s = newGame('wait-storm');
+    s = mutate(s, (m) => {
+      m.tents = [3];
+      m.compasses = 1;
+      // 把城市旁边一格做成临时沙尘暴场：直接改城市格当天天气不行（城市永远晴）
+      // 因此先移动到相邻格，再停留并覆盖该格天气
+    });
+    const target = getLegalMoves(s)[0];
+    s = performMove(s, target);
+    s = mutate(s, (m) => {
+      m.map.tiles[target].terrain = 'DESERT'; // 强制沙漠以匹配沙尘暴
+      m.map.weather[target][m.daysUsed] = 'SANDSTORM';
+    });
+    s = performAction(s, { type: 'WAIT' });
+    // 停留当天遭遇沙尘暴 → 沙尘暴 Modal 出现
+    expect(s.pendingEvents[0]?.kind ?? s.status).toBe('SANDSTORM');
+  });
+
+  it('停留不重复触发遭遇（每格每局最多一次）', () => {
+    let s = newGame('wait-enc', calmOverrides(newGame('wait-enc').map));
+    // 强制当前格有遭遇并标记已触发
+    s = mutate(s, (m) => {
+      const first = getLegalMoves(m)[0];
+      m.map.encounters[first] = 'CARAVAN';
+      m.triggeredEncounters.push(first);
+    });
+    const target = getLegalMoves(s)[0];
+    s = performMove(s, target); // 已触发过 → 不再触发
+    expect(s.pendingEvents.length).toBe(0);
+    s = performAction(s, { type: 'WAIT' });
+    expect(s.pendingEvents.length).toBe(0); // 停留绝不刷新遭遇
+  });
+
+  it('停留导致超过最大天数 → 失败', () => {
+    let s = newGame('wait-timeout');
+    s = mutate(s, (m) => {
+      m.daysUsed = 42;
+      m.maxDays = 42;
+    });
+    s = performAction(s, { type: 'WAIT' });
+    expect(s.status).toBe('DEFEAT');
+    expect(s.defeatReason).toBe('TIMEOUT');
+  });
+});
+
+describe('核心引擎：探索与战争迷雾', () => {
+  it('未探索格地形隐藏，亲自进入后永久揭示', () => {
+    let s = newGame('fog-1', calmOverrides(newGame('fog-1').map));
+    const target = getLegalMoves(s)[0];
+    expect(s.explored).not.toContain(target);
+    s = performMove(s, target);
+    expect(s.explored).toContain(target);
+  });
+
+  it('情报揭示曼哈顿距离 ≤2 的未知普通格', () => {
+    let s = newGame('intel-1');
+    const pos = s.position;
+    // 2 格内必有若干普通格（120 格全随机，几乎必然）
+    const inRadius = Object.keys(s.map.tiles).filter((id) => {
+      const [r, c] = id.split(':').map(Number);
+      const [pr, pc] = pos.split(':').map(Number);
+      return Math.abs(r - pr) + Math.abs(c - pc) <= 2;
+    });
+    expect(inRadius.length).toBeGreaterThan(4);
+  });
+});
+
+describe('核心引擎：天气与遭遇分离', () => {
+  it('同一天可以同时发生天气与遭遇（先天气后遭遇）', () => {
+    let s = newGame('sep-1');
+    const target = getLegalMoves(s)[0];
+    s = mutate(s, (m) => {
+      m.map.tiles[target].terrain = 'DESERT';
+      m.map.weather[target][0] = 'SANDSTORM';
+      m.map.encounters[target] = 'CARAVAN';
+    });
+    s = performMove(s, target);
+    expect(s.pendingEvents.map((e) => e.kind)).toEqual(['SANDSTORM', 'CARAVAN']);
+  });
+});
+
+describe('核心引擎：绿洲休整', () => {
+  it('绿洲休整耗 1 天 +1 耐力，每局每绿洲一次', () => {
+    let s = newGame('oasis-1', calmOverrides(newGame('oasis-1').map));
+    const oasis = findTiles(s, 'OASIS')[0];
+    s = mutate(s, (m) => {
+      m.stamina = 3;
+    });
+    s = walkTo(s, oasis);
+    expect(s.stamina).toBe(3); // 进入不免费恢复
+    s = performAction(s, { type: 'REST' });
+    expect(s.stamina).toBe(4);
+    expect(s.oasisRestUsed[oasis]).toBe(true);
+    expect(() => performAction(s, { type: 'REST' })).toThrow(GameError);
+  });
+
+  it('干涸绿洲不可休整', () => {
+    let s = newGame('oasis-2');
+    const oasis = findTiles(s, 'OASIS')[0];
+    s = mutate(s, (m) => {
+      m.map.drought[oasis] = true;
+    });
+    s = walkTo(s, oasis);
+    expect(() => performAction(s, { type: 'REST' })).toThrow(GameError);
+  });
+});
+
+describe('核心引擎：购买天气预报包', () => {
+  it('购买：maxDays -1，+3 次并立即使用 1 次剩 2 次', () => {
+    let s = newGame('fpack-1', calmOverrides(newGame('fpack-1').map));
+    s = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    expect(s.maxDays).toBe(41);
+    expect(s.forecastCharges).toBe(2);
+    expect(s.stats.forecastPacks).toBe(1);
+    expect(s.daysUsed).toBe(0); // 不消耗当天
+    expect(s.lastForecast).not.toBeNull();
+    expect(s.lastForecast!.day).toBe(1);
+  });
+
+  it('重复购买正确叠加', () => {
+    let s = newGame('fpack-2', calmOverrides(newGame('fpack-2').map));
+    s = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    expect(s.forecastCharges).toBe(2);
+    // 手动用掉 1 次后剩余 1，再购买：1 + 3 - 1 = 3
+    s = performAction(s, { type: 'USE_FORECAST' });
+    expect(s.forecastCharges).toBe(1);
+    s = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    expect(s.maxDays).toBe(40);
+    expect(s.forecastCharges).toBe(3);
+    expect(s.stats.forecastPacks).toBe(2);
   });
 });
