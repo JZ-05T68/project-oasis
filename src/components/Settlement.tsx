@@ -54,23 +54,27 @@ export default function Settlement({ game, onRestart }: Props) {
               {v.routeScore !== null && (
                 <>
                   <tr>
-                    <td className="k">路线难度评分</td>
+                    <td className="k">路线风险评分（仅供统计）</td>
                     <td className="v">
                       {v.routeScore}（{starLabel(v.stars ?? 1)}）
                     </td>
                   </tr>
                   <tr>
-                    <td className="k">宝石基础估值</td>
+                    <td className="k">宝石单价（进矿锁定）</td>
                     <td className="v">{v.baseGemPrice} 元/kg</td>
                   </tr>
-                  <tr>
-                    <td className="k">市场因素</td>
-                    <td className="v">× {v.marketFactor?.toFixed(2)}</td>
-                  </tr>
-                  <tr>
-                    <td className="k">最终成交价</td>
-                    <td className="v">{v.gemPrice ?? '-'} 元/kg</td>
-                  </tr>
+                  {v.marketFactor !== null && v.marketFactor !== 1 && (
+                    <tr>
+                      <td className="k">市场因素</td>
+                      <td className="v">× {v.marketFactor.toFixed(2)}</td>
+                    </tr>
+                  )}
+                  {v.marketFactor !== null && v.marketFactor !== 1 && (
+                    <tr>
+                      <td className="k">最终成交价</td>
+                      <td className="v">{v.gemPrice ?? '-'} 元/kg</td>
+                    </tr>
+                  )}
                 </>
               )}
               <tr>

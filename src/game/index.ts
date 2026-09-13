@@ -18,7 +18,7 @@ export {
   getRouteSummary,
   buildForecastView,
 } from './engine/engine';
-export { estimatePriceBand, starLabel } from './rules/routeScore';
+export { starLabel } from './rules/routeScore';
 export { weatherNames } from './rules/weather';
 export { tentLabel } from './rules/equipment';
 export { worldMap } from './map/worldMap';

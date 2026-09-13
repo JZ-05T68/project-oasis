@@ -1,33 +1,27 @@
-import { GameState, NodeId } from '../types';
+import { GameState } from '../types';
 import { gameConfig } from '../config/gameConfig';
-import { nextRandom } from '../random/rng';
 import { enumerateReturnPathsFromMine } from './movement';
 
 /**
- * 路线难度评分与宝石定价。
+ * 路线风险评分（v0.1.1）。
  *
- * 评分评估的是「路线客观风险」，不是玩家实际受到的伤害——
- * 故意不用帐篷挨打、故意迷路都不会提高售价，无法靠受伤刷价。
+ * 评分只用于统计与展示（结算页风险评级、调试、仿真分析），
+ * 【不】影响宝石售价——售价由矿区入口固定（见 gameConfig.mineBasePrice）。
+ * 评分评估的是「路线客观风险」，不是玩家实际受到的伤害。
  *
  * score = 去程地形风险 + 最优合法返程地形风险 + 时间冗余惩罚 + 返程稀缺惩罚
- * baseGemPrice = clamp(round(80 + score × K), 80, 320)
- * finalGemPrice = round(baseGemPrice × marketFactor)，marketFactor ∈ [0.95, 1.05] 由 Seed 决定
  */
 
 export interface RouteScoreResult {
   score: number;
   stars: number;
-  baseGemPrice: number;
-  marketFactor: number;
-  gemPrice: number;
   outboundRisk: number;
   returnRisk: number;
   returnPathCount: number;
   returnPathTruncated: boolean;
-  rngState: number;
 }
 
-function tileRiskOf(state: GameState, nodeId: NodeId): number {
+function tileRiskOf(state: GameState, nodeId: string): number {
   const terrain = state.map.nodes[nodeId].terrain;
   return gameConfig.tileRisk[terrain] ?? 0;
 }
@@ -49,9 +43,8 @@ export function starLabel(stars: number): string {
 }
 
 /**
- * 计算进入矿区时刻的路线难度与定价。
+ * 计算进入矿区时刻的路线风险评分。
  * 前置条件：state.position 为矿区入口，visitedOutbound 已包含完整去程。
- * 返回 marketFactor 及更新后的 rngState（由引擎写回 GameState）。
  */
 export function computeRouteScore(state: GameState): RouteScoreResult {
   const mineId = state.position;
@@ -95,34 +88,12 @@ export function computeRouteScore(state: GameState): RouteScoreResult {
 
   const score = round1(outboundRisk + returnRisk + slackPenalty + scarcityPenalty);
 
-  const base = Math.max(
-    gameConfig.priceMin,
-    Math.min(gameConfig.priceMax, Math.round(gameConfig.priceBase + score * gameConfig.priceMultiplier)),
-  );
-  const [roll, rngState] = nextRandom(state.rngState);
-  const marketFactor =
-    Math.round(
-      (gameConfig.marketFactorMin + roll * (gameConfig.marketFactorMax - gameConfig.marketFactorMin)) * 100,
-    ) / 100;
-  const gemPrice = Math.round(base * marketFactor);
-
   return {
     score,
     stars: computeStarRating(score),
-    baseGemPrice: base,
-    marketFactor,
-    gemPrice,
     outboundRisk: round1(outboundRisk),
     returnRisk: round1(returnRisk),
     returnPathCount: paths.length,
     returnPathTruncated: truncated,
-    rngState,
   };
-}
-
-/** 进入矿区时向玩家展示的预估售价区间（真实成交价必在其中） */
-export function estimatePriceBand(baseGemPrice: number): [number, number] {
-  const lo = Math.round(baseGemPrice * gameConfig.marketFactorMin);
-  const hi = Math.round(baseGemPrice * gameConfig.marketFactorMax);
-  return [lo, hi];
 }

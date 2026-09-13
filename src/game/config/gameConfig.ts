@@ -88,12 +88,20 @@ export const gameConfig = {
   /** 返程路径枚举上限（达到即视为「很多」） */
   returnPathSearchLimit: 8,
 
-  /* ---------- 宝石定价 ---------- */
-  priceBase: 80,
-  priceMultiplier: 1.9,
-  priceMin: 80,
-  priceMax: 320,
-  /** 市场波动系数范围（Seed 决定，进入矿区时抽取） */
+  /* ---------- 宝石定价（v0.1.1：按矿区入口固定） ---------- */
+  /**
+   * 三个矿区入口的固定收购价（元/kg）。
+   * 价格只由玩家首次进入的矿区入口决定，进入即锁定；
+   * 与去程地形、路线风险评分、实际受伤、天气、事件、路线长度一概无关。
+   */
+  mineBasePrice: { SOUTH: 100, CENTRAL: 180, NORTH: 280 } as Record<string, number>,
+  /**
+   * 市场随机波动系数（0.95~1.05）。
+   * v0.1.1 默认关闭：gemPrice = mineBasePrice。
+   * 机制保留为未来实验功能，开启后成交价 = round(固定价 × marketFactor)。
+   */
+  marketEnabled: false,
+  /** 市场波动系数范围（仅 marketEnabled = true 时使用） */
   marketFactorMin: 0.95,
   marketFactorMax: 1.05,
 

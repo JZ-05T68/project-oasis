@@ -13,8 +13,15 @@ import { GameMap, MapNode, NodeId, Edge } from '../types';
  * 即必然存在两条内部普通格完全不重合的合法往返路线。
  */
 
-function node(id: string, terrain: MapNode['terrain'], name: string, x: number, y: number): MapNode {
-  return { id, terrain, name, x, y };
+function node(
+  id: string,
+  terrain: MapNode['terrain'],
+  name: string,
+  x: number,
+  y: number,
+  mineSlot?: MapNode['mineSlot'],
+): MapNode {
+  return mineSlot ? { id, terrain, name, x, y, mineSlot } : { id, terrain, name, x, y };
 }
 
 const NODE_LIST: MapNode[] = [
@@ -24,7 +31,7 @@ const NODE_LIST: MapNode[] = [
   node('sv', 'VILLAGE', '南境市集村', 6, 8),
   node('so', 'OASIS', '南境绿洲', 8, 8),
   node('sg2', 'GRASS', '东南草地', 10, 8),
-  node('mineS', 'MINE', '南矿区入口', 12, 8),
+  node('mineS', 'MINE', '南矿区入口', 12, 8, 'SOUTH'),
   // 中部横线
   node('mg1', 'GRASS', '西郊草地', 3, 7),
   node('md1', 'DESERT', '边缘沙漠', 5, 7),
@@ -59,8 +66,8 @@ const NODE_LIST: MapNode[] = [
   node('t5', 'GRASS', '极北草地', 11, 3),
   node('t6', 'GRASS', '矿西环草地', 6, 2),
   // 矿区入口
-  node('mineC', 'MINE', '中央矿区入口', 7, 2),
-  node('mineN', 'MINE', '北矿区入口', 12, 3),
+  node('mineC', 'MINE', '中央矿区入口', 7, 2, 'CENTRAL'),
+  node('mineN', 'MINE', '北矿区入口', 12, 3, 'NORTH'),
 ];
 
 const EDGE_LIST: Edge[] = [

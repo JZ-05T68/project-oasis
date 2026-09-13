@@ -31,14 +31,13 @@ import {
 import {
   computeRouteScore,
   computeStarRating,
-  estimatePriceBand,
   starLabel,
 } from '../rules/routeScore';
 import { worldMap } from '../map/worldMap';
 import { GameMap } from '../types';
 
 export { computeSettlement } from '../rules/settlement';
-export { estimatePriceBand, starLabel, computeStarRating } from '../rules/routeScore';
+export { starLabel, computeStarRating } from '../rules/routeScore';
 export { weatherNames } from '../rules/weather';
 export { getLegalMoves, hasLegalReturnPath } from '../rules/movement';
 export { isTerrainKnown } from '../rules/reveal';
@@ -271,24 +270,40 @@ function terrainBadge(terrain: string): string {
 
 function enterMine(s: GameState): void {
   const mineId = s.position;
+  const node = s.map.nodes[mineId];
   s.phase = 'MINING';
   s.mineEntranceId = mineId;
   s.stats.outboundDays = s.daysUsed;
-  pushLog(s, 'event', `你抵达「${s.map.nodes[mineId].name}」，路线难度评定中……`);
+  pushLog(s, 'event', `你抵达「${node.name}」，路线风险评定中……`);
 
   if (!hasLegalReturnPath(s)) {
     defeat(s, 'RETURN_ROUTE_SEVERED', '你的去程封死了所有归途——没有任何合法返城路线。宝库就在眼前，但一切都结束了。');
     return;
   }
 
+  // 路线风险评分：仅用于统计与展示，不影响售价
   const result = computeRouteScore(s);
   s.routeScore = result.score;
-  s.baseGemPrice = result.baseGemPrice;
-  s.marketFactor = result.marketFactor;
-  s.gemPrice = result.gemPrice;
-  s.rngState = result.rngState;
-  const [lo, hi] = estimatePriceBand(result.baseGemPrice);
-  pushLog(s, 'good', `路线难度评分 ${result.score}（${starLabel(result.stars)}）。宝石基础估价 ${result.baseGemPrice} 元/kg，预计售价 ${lo}~${hi} 元/kg（市场行情结算时揭晓）。`);
+
+  // v0.1.1：宝石单价由矿区入口固定，进入即锁定
+  const base = node.mineSlot
+    ? gameConfig.mineBasePrice[node.mineSlot]
+    : gameConfig.mineBasePrice.SOUTH;
+  s.baseGemPrice = base;
+  if (gameConfig.marketEnabled) {
+    const [roll, rngState] = nextRandom(s.rngState);
+    s.rngState = rngState;
+    s.marketFactor =
+      Math.round(
+        (gameConfig.marketFactorMin + roll * (gameConfig.marketFactorMax - gameConfig.marketFactorMin)) * 100,
+      ) / 100;
+  } else {
+    s.marketFactor = 1;
+  }
+  s.gemPrice = Math.round(s.baseGemPrice * s.marketFactor);
+
+  const slotName = node.mineSlot === 'NORTH' ? '北矿区' : node.mineSlot === 'CENTRAL' ? '中央矿区' : '南矿区';
+  pushLog(s, 'good', `${slotName}宝石收购价 ${s.baseGemPrice} 元/kg（进入即锁定，固定不变）。路线风险评级 ${starLabel(result.stars)}（评分 ${result.score}）——评级仅供统计，不影响售价。`);
   pushLog(s, 'info', `去程耗时 ${s.daysUsed} 天。从现在起每天可挖 ${gameConfig.gemPerMiningDay}kg 宝石，何时收手由你决定。`);
 }
 
@@ -689,11 +704,10 @@ export function buildForecastView(s: GameState): ForecastView {
   return { dayNumbers, rows };
 }
 
-/** 路线难度评分的展示信息 */
+/** 路线风险评分的展示信息（不影响售价） */
 export function getRouteSummary(state: GameState): string | null {
   if (state.routeScore === null) return null;
-  const [lo, hi] = estimatePriceBand(state.baseGemPrice ?? 0);
-  return `评分 ${state.routeScore}（${starLabel(computeStarRating(state.routeScore))}），预计售价 ${lo}~${hi} 元/kg`;
+  return `路线风险评分 ${state.routeScore}（${starLabel(computeStarRating(state.routeScore))}）`;
 }
 
 /* ------------------------------------------------------------------ */

@@ -3,7 +3,6 @@ import {
   performAction,
   getAvailableActions,
   getLegalMoves,
-  estimatePriceBand,
 } from '../src/game';
 import { newGame, calmOverrides, walk, act } from './helpers';
 import { worldMap } from '../src/game/map/worldMap';
@@ -16,28 +15,20 @@ function gotoMine(seed: string, route: string[] = ['sg1', 'sv', 'so', 'sg2', 'mi
 }
 
 describe('宝库：进入与价格锁定', () => {
-  it('首次进入矿区入口即锁定路线评分与价格', () => {
+  it('首次进入矿区入口即锁定路线评分与固定价格', () => {
     const s = gotoMine('mine-lock');
     expect(s.phase).toBe('MINING');
     expect(s.mineEntranceId).toBe('mineS');
     expect(s.routeScore).not.toBeNull();
-    expect(s.baseGemPrice).not.toBeNull();
-    expect(s.marketFactor).not.toBeNull();
-    expect(s.gemPrice).not.toBeNull();
     expect(s.stats.outboundDays).toBe(5);
-    // 价格约束
-    expect(s.baseGemPrice!).toBeGreaterThanOrEqual(gameConfig.priceMin);
-    expect(s.baseGemPrice!).toBeLessThanOrEqual(gameConfig.priceMax);
-    expect(s.marketFactor!).toBeGreaterThanOrEqual(gameConfig.marketFactorMin);
-    expect(s.marketFactor!).toBeLessThanOrEqual(gameConfig.marketFactorMax);
-    expect(s.gemPrice!).toBe(Math.round(s.baseGemPrice! * s.marketFactor!));
-    // 预估区间包含真实成交价
-    const [lo, hi] = estimatePriceBand(s.baseGemPrice!);
-    expect(s.gemPrice!).toBeGreaterThanOrEqual(lo);
-    expect(s.gemPrice!).toBeLessThanOrEqual(hi);
+    // v0.1.1：南矿区固定价 100 元/kg，市场系数关闭
+    expect(s.baseGemPrice).toBe(gameConfig.mineBasePrice.SOUTH);
+    expect(s.baseGemPrice).toBe(100);
+    expect(s.marketFactor).toBe(1);
+    expect(s.gemPrice).toBe(100);
   });
 
-  it('同一 Seed 同一路线 → 完全相同的评分与价格；不同 Seed 市场系数可不同', () => {
+  it('同一 Seed 同一路线 → 完全相同的评分与价格', () => {
     const a = gotoMine('price-determinism');
     const b = gotoMine('price-determinism');
     expect(a.routeScore).toBe(b.routeScore);

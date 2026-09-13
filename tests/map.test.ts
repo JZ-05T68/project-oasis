@@ -72,15 +72,15 @@ describe('固定地图：结构与合法性', () => {
   }
 });
 
-describe('固定地图：路线难度评分校准', () => {
+describe('固定地图：矿区定价与路线风险评分', () => {
   const SOUTH = ['sg1', 'sv', 'so', 'sg2', 'mineS'];
   const CENTRAL = ['mg1', 'md1', 'wd1', 'wo', 'wg1', 'nd2', 'cd1', 't3', 'mineC'];
   const NORTH = ['w0', 'w1', 'n0', 'n3', 't1', 't2', 't3', 't4', 't5', 'mineN'];
 
-  function playPrice(seed: string, route: string[]): number {
+  function play(seed: string, route: string[]) {
     let s = newGame(seed, calmOverrides(worldMap));
     s = walk(s, route);
-    return s.baseGemPrice!;
+    return s;
   }
 
   it('三条代表路线全部是地图上的合法路径', () => {
@@ -93,47 +93,48 @@ describe('固定地图：路线难度评分校准', () => {
     }
   });
 
-  it('南线代表路为低风险区间（100~145 元/kg）', () => {
-    const price = playPrice('calibrate-south', SOUTH);
-    expect(price).toBeGreaterThanOrEqual(100);
-    expect(price).toBeLessThanOrEqual(145);
+  it('v0.1.1 固定定价：南矿 100 / 中央矿 180 / 北矿 280 元/kg', () => {
+    expect(gameConfig.mineBasePrice.SOUTH).toBe(100);
+    expect(gameConfig.mineBasePrice.CENTRAL).toBe(180);
+    expect(gameConfig.mineBasePrice.NORTH).toBe(280);
+    expect(play('price-s', SOUTH).gemPrice).toBe(100);
+    expect(play('price-c', CENTRAL).gemPrice).toBe(180);
+    expect(play('price-n', NORTH).gemPrice).toBe(280);
   });
 
-  it('中线代表路为中风险区间（200~250 元/kg）', () => {
-    const price = playPrice('calibrate-central', CENTRAL);
-    expect(price).toBeGreaterThanOrEqual(200);
-    expect(price).toBeLessThanOrEqual(250);
+  it('路线风险评分与售价完全解耦：同一矿区不同路线 → 同价不同分', () => {
+    // 两条通往中央矿区且都存在合法返程的路线
+    const short = play('decouple-1', CENTRAL);
+    const detour = play('decouple-1', [
+      'mg1', 'sg1', 'sv', 'mv', 'md1', 'wd1', 'wo', 'wg1', 'nd2', 'cd1', 't3', 'mineC',
+    ]);
+    expect(detour.status).toBe('ONGOING');
+    expect(detour.baseGemPrice).toBe(short.baseGemPrice);
+    expect(detour.gemPrice).toBe(short.gemPrice);
+    expect(detour.routeScore).not.toBe(short.routeScore); // 评分反映路线差异，售价不受影响
   });
 
-  it('北线代表路为高风险区间（245~320 元/kg）', () => {
-    const price = playPrice('calibrate-north', NORTH);
-    expect(price).toBeGreaterThanOrEqual(245);
-    expect(price).toBeLessThanOrEqual(320);
+  it('价格不受 Seed 影响（市场系数关闭）', () => {
+    const prices = new Set<number>();
+    for (const seed of ['mk-1', 'mk-2', 'mk-3', 'mk-4', 'mk-5', 'mk-6']) {
+      prices.add(play(seed, SOUTH).marketFactor!);
+      prices.add(play(seed, NORTH).gemPrice!);
+    }
+    expect(prices.has(1)).toBe(true);
+    expect(gameConfig.marketEnabled).toBe(false);
   });
 
-  it('评分区间严格递增：南线 < 中线 < 北线', () => {
-    const south = playPrice('order-check', SOUTH);
-    const central = playPrice('order-check', CENTRAL);
-    const north = playPrice('order-check', NORTH);
-    expect(south).toBeLessThan(central);
-    expect(central).toBeLessThan(north);
+  it('路线风险评分仍然有效：南线 < 北线（客观风险差异保留在统计中）', () => {
+    const south = play('order-check', SOUTH);
+    const north = play('order-check', NORTH);
+    expect(south.routeScore).toBeLessThan(north.routeScore);
   });
 
   it('草地单格风险系数高于沙漠（草地不是安全地形）', () => {
     expect(gameConfig.tileRisk.GRASS).toBeGreaterThan(gameConfig.tileRisk.DESERT);
   });
 
-  it('去程绕行更多危险地形会提高评分（路线选择有意义）', () => {
-    // 同样前往中央矿区：直接北上 vs 先绕行南侧草地
-    const short = playPrice('detour-check', CENTRAL);
-    const detour = playPrice('detour-check', [
-      'mg1', 'sg1', 'sv', 'mv', 'md1', 'wd1', 'wo', 'wg1', 'nd2', 'cd1', 't3', 'mineC',
-    ]);
-    expect(detour).toBeGreaterThan(short);
-  });
-
   it('去程封死所有返城路线时进入矿区即失败（真实地图场景）', () => {
-    // 该去程同时消耗 sg2 的两个出口（so/mg2），南矿区入口将被封死
     let s = newGame('severed-real', calmOverrides(worldMap));
     s = walk(s, ['sg1', 'mg1', 'md1', 'mv', 'mo', 'mg2', 'mineS']);
     expect(s.status).toBe('DEFEAT');

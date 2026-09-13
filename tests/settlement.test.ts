@@ -223,14 +223,14 @@ describe('Seed 可复现性', () => {
     expect(a.encounterRolls).not.toEqual(b.encounterRolls);
   });
 
-  it('不同 Seed 的同一路线可能得到不同的市场系数', () => {
+  it('v0.1.1 市场系数关闭：不同 Seed 同一路线价格完全一致', () => {
     const prices = new Set<number>();
     for (const seed of ['mkt-1', 'mkt-2', 'mkt-3', 'mkt-4', 'mkt-5', 'mkt-6']) {
       let s = newGame(seed, calmOverrides(worldMap));
       s = walk(s, ['sg1', 'sv', 'so', 'sg2', 'mineS']);
       prices.add(s.marketFactor!);
+      prices.add(s.gemPrice!);
     }
-    // 至少出现两种不同的市场系数（0.95~1.05 连续分布）
-    expect(prices.size).toBeGreaterThanOrEqual(2);
+    expect(prices).toEqual(new Set([1, 100]));
   });
 });

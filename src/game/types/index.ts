@@ -30,6 +30,9 @@ export type DefeatReason =
   | 'RETURN_ROUTE_SEVERED' // 返程不存在合法回城路径（含矿区入口被封）
   | 'TRAPPED'; // 去程被围死，无任何合法移动
 
+/** 矿区风险档位（决定固定宝石收购价） */
+export type MineSlot = 'SOUTH' | 'CENTRAL' | 'NORTH';
+
 /** 地图节点 */
 export interface MapNode {
   id: NodeId;
@@ -38,6 +41,8 @@ export interface MapNode {
   /** 渲染坐标（抽象网格，仅供 UI/SVG 使用） */
   x: number;
   y: number;
+  /** 仅 MINE 节点：所属矿区档位，映射 gameConfig.mineBasePrice */
+  mineSlot?: MineSlot;
 }
 
 export type Edge = [NodeId, NodeId];

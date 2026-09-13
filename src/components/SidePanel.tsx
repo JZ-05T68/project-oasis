@@ -1,7 +1,6 @@
 import {
   getCurrentWeather,
   getAvailableActions,
-  estimatePriceBand,
   starLabel,
   weatherNames,
 } from '../game';
@@ -32,20 +31,18 @@ export default function SidePanel({ game, onAction }: Props) {
           <span className="k">今日天气</span>
           <span className={`wtag w-${weather.toLowerCase()}`}>{weatherNames[weather]}</span>
         </div>
-        {game.routeScore !== null && game.baseGemPrice !== null && (
+        {game.routeScore !== null && (
           <div className="location-line">
-            <span className="k">路线评级</span>
+            <span className="k">路线风险评级</span>
             <span>
-              {starLabel(computeStarRating(game.routeScore))}（评分 {game.routeScore}）
+              {starLabel(computeStarRating(game.routeScore))}（评分 {game.routeScore}，仅供统计）
             </span>
           </div>
         )}
         {game.baseGemPrice !== null && (
           <div className="location-line">
-            <span className="k">预计售价</span>
-            <span>
-              {estimatePriceBand(game.baseGemPrice)[0]}~{estimatePriceBand(game.baseGemPrice)[1]} 元/kg
-            </span>
+            <span className="k">宝石单价</span>
+            <span>{game.gemPrice} 元/kg（进入矿区即锁定）</span>
           </div>
         )}
       </div>
