@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, performAction, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
+import { bfsPath } from '../src/game/map/grid';
 import { newGame, calmOverrides, mutate, walkTo } from './helpers';
 
 /** 天气预报（v0.1.2）：单日局部 + 可储存次数 */
@@ -65,15 +66,14 @@ describe('天气预报：购买机制', () => {
     expect(s.lastForecast).toBeNull(); // 移动一天后失效
   });
 
-  it('daysUsed == maxDays 时购买会立即超时失败', () => {
+  it('daysUsed == maxDays 时购买会被必败检查禁止', () => {
     let s = newGame('fc-death');
     s = mutate(s, (m) => {
       m.daysUsed = 42;
       m.maxDays = 42;
     });
-    s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.status).toBe('DEFEAT');
-    expect(s.defeatReason).toBe('TIMEOUT');
+    // v0.1.2a：购买将导致剩余时间不足 → 后台禁止购买，不进入对局
+    expect(() => performAction(s, { type: 'BUY_FORECAST_PACK' })).toThrow(GameError);
   });
 });
 
@@ -149,6 +149,9 @@ describe('天气预报：空间范围（当前格 + 8 邻域）', () => {
 describe('天气预报：等待避灾配合', () => {
   it('停留决策依赖预报：预报显示当前格明天沙尘暴时，玩家可提前得知', () => {
     let s = newGame('fc-wait-storm');
+    s = mutate(s, (m) => {
+      m.tents = [3]; // 野外宿营需要帐篷
+    });
     const legal = getLegalMoves(s);
     const target = legal[0];
     s = performMove(s, target);
@@ -160,8 +163,8 @@ describe('天气预报：等待避灾配合', () => {
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
     const cell = s.lastForecast!.cells.find((c) => c.isCurrent)!;
     expect(cell.weather).toBe('SANDSTORM');
-    // 玩家此时可以选择停留——停留当天将触发沙尘暴 Modal
-    s = performAction(s, { type: 'WAIT' });
+    // 玩家此时可以选择宿营避雨——宿营当天将触发沙尘暴 Modal
+    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
     expect(s.pendingEvents[0]?.kind ?? '').toBe('SANDSTORM');
   });
 
@@ -176,9 +179,23 @@ describe('天气预报：等待避灾配合', () => {
 
   it('矿区内也可以购买与使用预报（为返程做准备）', () => {
     let s = newGame('fc-mine');
-    s = walkTo(s, s.map.mines[0].tileId);
+    // 走到更近的矿区，减少路途中的时间消耗
+    const mineA = s.map.mines[0].tileId;
+    const mineB = s.map.mines[1].tileId;
+    const len = (id: string) => bfsLen(s, id);
+    const target = len(mineA) <= len(mineB) ? mineA : mineB;
+    s = walkTo(s, target);
+    expect(s.status).toBe('ONGOING');
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
     expect(s.forecastCharges).toBe(2);
     expect(s.lastForecast).not.toBeNull();
   });
 });
+
+/** 计算从当前位置到目标的 BFS 距离 */
+function bfsLen(s: ReturnType<typeof newGame>, target: string): number {
+  const p = bfsPath(s.map, s.position, target, [], (id) =>
+    s.map.mines.every((m) => m.tileId !== id || id === target),
+  );
+  return p ? p.length : 999;
+}

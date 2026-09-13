@@ -204,16 +204,19 @@ describe('仿真统计正确性（合成数据）', () => {
 });
 
 describe('引擎直接行为抽查（仿真等价路径）', () => {
-  it('买预报包 + 使用 + 停留 组合行为', () => {
-    let s = createNewGame('combo-v012');
+  it('买预报包 + 使用 + 宿营 组合行为', () => {
+    let s = newGameCalm('combo-v012');
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
     expect(s.maxDays).toBe(41);
     expect(s.forecastCharges).toBe(2);
     s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.forecastCharges).toBe(1);
+    s = mutate(s, (m) => {
+      m.tents = [3]; // 野外宿营需要帐篷
+    });
     const legal = buildFairView(s).legalMoves;
     s = performMove(s, legal[0]);
-    s = performAction(s, { type: 'WAIT' });
+    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
     expect(s.daysUsed).toBe(2);
   });
 
@@ -238,5 +241,23 @@ describe('引擎直接行为抽查（仿真等价路径）', () => {
 function mutate(state: ReturnType<typeof createNewGame>, fn: (s: ReturnType<typeof createNewGame>) => void): ReturnType<typeof createNewGame> {
   const s = structuredClone(state);
   fn(s);
+  return s;
+}
+
+/** 无天气/遭遇干扰的确定对局 */
+function newGameCalm(seed: string): ReturnType<typeof createNewGame> {
+  const base = createNewGame(seed);
+  const weather: Record<string, string[]> = {};
+  const encounters: Record<string, null> = {};
+  const drought: Record<string, boolean> = {};
+  for (const id of Object.keys(base.map.tiles)) {
+    weather[id] = new Array(46).fill('SUNNY');
+    encounters[id] = null;
+    drought[id] = false;
+  }
+  const s = structuredClone(base);
+  s.map.weather = weather as typeof s.map.weather;
+  s.map.encounters = encounters;
+  s.map.drought = drought;
   return s;
 }

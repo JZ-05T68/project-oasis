@@ -178,7 +178,8 @@ describe('v0.1.2 矿区动态价值', () => {
       const m = generateWorld(`differ-${i}`);
       if (m.mines[0].gemPrice !== m.mines[1].gemPrice) differ += 1;
     }
-    expect(differ).toBeGreaterThanOrEqual(20);
+    // v0.1.2a 价格更集中，允许部分对局两矿同价
+    expect(differ).toBeGreaterThanOrEqual(10);
   });
 
 });

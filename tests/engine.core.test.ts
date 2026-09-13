@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, getLegalMoves, performAction } from '../src/game';
 import { GameError } from '../src/game/types';
+import type { CreateGameOptions } from '../src/game/types';
 import { newGame, calmOverrides, walk, walkTo, mutate, findTiles, mineTile } from './helpers';
 import { gameConfig } from '../src/game/config/gameConfig';
 
@@ -156,30 +157,25 @@ describe('核心引擎：返程规则', () => {
   });
 });
 
-describe('核心引擎：路线中断（无路可回）', () => {
-  it('返程中途被封死 → 立即判负（RETURN_ROUTE_SEVERED）', () => {
-    // 构造：走到矿区并挖到只剩很少返程天数，然后在返程中反复走死路
-    // 更直接的方式：烧掉大片格子使返程不可达
-    let s = newGame('severed-grid');
-    s = walkTo(s, mineTile(s, 'A'));
-    // 模拟封死：把全图除矿区周边外全部标记为已烧（去程）
-    s = mutate(s, (m) => {
-      for (const id of Object.keys(m.map.tiles)) {
-        const t = m.map.tiles[id];
-        if (t.terrain !== 'DESERT' && t.terrain !== 'GRASS' && t.terrain !== 'VILLAGE' && t.terrain !== 'OASIS') continue;
-        const isNearMine =
-          t.col >= 9 && Math.abs(t.row - m.map.tiles[m.mineEntranceId!].row) <= 1;
-        if (!isNearMine && !m.visitedOutbound.includes(id)) m.visitedOutbound.push(id);
-      }
-    });
-    s = performAction(s, { type: 'START_RETURN' });
-    expect(s.status).toBe('DEFEAT');
-    expect(s.defeatReason).toBe('RETURN_ROUTE_SEVERED');
+/** 直接把玩家传送到矿区并进入 MINING（避免长走程触发提前判负，专测后续规则） */
+function teleportToMineA(seed: string, opts: CreateGameOptions = {}) {
+  let s = newGame(seed, { ...calmOverrides(newGame(seed).map), ...opts });
+  const mine = mineTile(s, 'A');
+  s = mutate(s, (m) => {
+    m.position = mine;
+    m.phase = 'MINING';
+    m.mineEntranceId = mine;
+    m.stats.outboundDays = m.daysUsed;
+    if (!m.visitedOutbound.includes(mine)) m.visitedOutbound.push(mine);
+    if (!m.explored.includes(mine)) m.explored.push(mine);
   });
+  return s;
+}
 
-  it('开始返程时若已无合法路径 → 判负', () => {
-    let s = newGame('severed-at-start');
-    s = walkTo(s, mineTile(s, 'A'));
+describe('核心引擎：路线中断（无路可回）', () => {
+  it('开始返程时若已无合法路径 → 判负（RETURN_ROUTE_SEVERED）', () => {
+    let s = teleportToMineA('severed-at-start');
+    // 模拟封死：把矿区以西的大片格子标记为去程已烧
     s = mutate(s, (m) => {
       for (const id of Object.keys(m.map.tiles)) {
         const t = m.map.tiles[id];
@@ -190,6 +186,27 @@ describe('核心引擎：路线中断（无路可回）', () => {
     s = performAction(s, { type: 'START_RETURN' });
     expect(s.status).toBe('DEFEAT');
     expect(s.defeatReason).toBe('RETURN_ROUTE_SEVERED');
+  });
+
+  it('返程中途被封死 → 立即判负（RETURN_ROUTE_SEVERED）', () => {
+    let s = teleportToMineA('severed-grid');
+    s = performAction(s, { type: 'START_RETURN' });
+    // 返程开始后封死矿区周边以外的所有格子 → 下一步行动触发判负
+    s = mutate(s, (m) => {
+      m.tents = [3];
+      for (const id of Object.keys(m.map.tiles)) {
+        const t = m.map.tiles[id];
+        if (t.terrain !== 'DESERT' && t.terrain !== 'GRASS' && t.terrain !== 'VILLAGE' && t.terrain !== 'OASIS') continue;
+        const isNearMine =
+          t.col >= 10 && Math.abs(t.row - m.map.tiles[m.mineEntranceId!].row) <= 1;
+        if (!isNearMine && !m.visitedOutbound.includes(id) && !m.visitedReturn.includes(id)) {
+          m.visitedOutbound.push(id);
+        }
+      }
+    });
+    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
+    expect(s.status).toBe('DEFEAT');
+    expect(['RETURN_ROUTE_SEVERED', 'NO_LEGAL_ROUTE']).toContain(s.defeatReason);
   });
 });
 
@@ -215,8 +232,6 @@ describe('核心引擎：原地停留', () => {
     s = mutate(s, (m) => {
       m.tents = [3];
       m.compasses = 1;
-      // 把城市旁边一格做成临时沙尘暴场：直接改城市格当天天气不行（城市永远晴）
-      // 因此先移动到相邻格，再停留并覆盖该格天气
     });
     const target = getLegalMoves(s)[0];
     s = performMove(s, target);
@@ -224,7 +239,8 @@ describe('核心引擎：原地停留', () => {
       m.map.tiles[target].terrain = 'DESERT'; // 强制沙漠以匹配沙尘暴
       m.map.weather[target][m.daysUsed] = 'SANDSTORM';
     });
-    s = performAction(s, { type: 'WAIT' });
+    // 野外宿营：必须选择帐篷（耐久 -1）
+    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
     // 停留当天遭遇沙尘暴 → 沙尘暴 Modal 出现
     expect(s.pendingEvents[0]?.kind ?? s.status).toBe('SANDSTORM');
   });
@@ -236,11 +252,12 @@ describe('核心引擎：原地停留', () => {
       const first = getLegalMoves(m)[0];
       m.map.encounters[first] = 'CARAVAN';
       m.triggeredEncounters.push(first);
+      m.tents = [3];
     });
     const target = getLegalMoves(s)[0];
     s = performMove(s, target); // 已触发过 → 不再触发
     expect(s.pendingEvents.length).toBe(0);
-    s = performAction(s, { type: 'WAIT' });
+    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
     expect(s.pendingEvents.length).toBe(0); // 停留绝不刷新遭遇
   });
 
@@ -292,28 +309,43 @@ describe('核心引擎：天气与遭遇分离', () => {
   });
 });
 
-describe('核心引擎：绿洲休整', () => {
-  it('绿洲休整耗 1 天 +1 耐力，每局每绿洲一次', () => {
+describe('核心引擎：绿洲修整', () => {
+  it('绿洲修整耗 1 天 +1 耐力（消耗帐篷 1 点），每局每绿洲一次', () => {
     let s = newGame('oasis-1', calmOverrides(newGame('oasis-1').map));
     const oasis = findTiles(s, 'OASIS')[0];
     s = mutate(s, (m) => {
       m.stamina = 3;
+      m.tents = [3];
     });
     s = walkTo(s, oasis);
     expect(s.stamina).toBe(3); // 进入不免费恢复
-    s = performAction(s, { type: 'REST' });
+    s = performAction(s, { type: 'REST', tentIndex: 0 });
     expect(s.stamina).toBe(4);
+    expect(s.tents).toEqual([2]); // 修整需要宿营：帐篷耐久 -1
     expect(s.oasisRestUsed[oasis]).toBe(true);
-    expect(() => performAction(s, { type: 'REST' })).toThrow(GameError);
+    expect(() => performAction(s, { type: 'REST', tentIndex: 0 })).toThrow(GameError);
   });
 
-  it('干涸绿洲不可休整', () => {
+  it('干涸绿洲不可修整', () => {
     let s = newGame('oasis-2');
     const oasis = findTiles(s, 'OASIS')[0];
     s = mutate(s, (m) => {
       m.map.drought[oasis] = true;
+      m.tents = [3];
     });
     s = walkTo(s, oasis);
+    expect(() => performAction(s, { type: 'REST', tentIndex: 0 })).toThrow(GameError);
+  });
+
+  it('无帐篷时即使有水绿洲也不能修整', () => {
+    let s = newGame('oasis-3', calmOverrides(newGame('oasis-3').map));
+    const oasis = findTiles(s, 'OASIS')[0];
+    s = mutate(s, (m) => {
+      m.stamina = 3;
+      m.tents = []; // 明确无帐篷
+    });
+    s = walkTo(s, oasis);
+    expect(s.map.drought[oasis]).toBe(false);
     expect(() => performAction(s, { type: 'REST' })).toThrow(GameError);
   });
 });

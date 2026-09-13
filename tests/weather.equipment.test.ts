@@ -41,7 +41,7 @@ describe('沙尘暴：四象限（帐篷 × 指南针）', () => {
     const { s, day } = stormScenario('storm-1', [3], 1);
     expect(s.pendingEvents[0].kind).toBe('SANDSTORM');
     const ev = s.pendingEvents[0];
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: true });
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: true, tentIndex: 0 });
     expect(s2.tents).toEqual([2]);
     expect(s2.compasses).toBe(0);
     expect(s2.stamina).toBe(5);
@@ -52,7 +52,7 @@ describe('沙尘暴：四象限（帐篷 × 指南针）', () => {
   it('有帐篷 + 不用指南针：不掉耐力，帐篷 -1，迷路额外损失 1 天', () => {
     const { s, day } = stormScenario('storm-2', [3], 0);
     const ev = s.pendingEvents[0];
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false });
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentIndex: 0 });
     expect(s2.tents).toEqual([2]);
     expect(s2.stamina).toBe(5);
     expect(s2.daysUsed).toBe(day + 1); // 迷路 +1 天
@@ -79,7 +79,7 @@ describe('沙尘暴：四象限（帐篷 × 指南针）', () => {
   it('帐篷 3 次沙漠耐久：第 3 次抵挡后整顶消失', () => {
     const { s } = stormScenario('storm-deplete', [1], 0);
     const ev = s.pendingEvents[0];
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false });
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentIndex: 0 });
     expect(s2.tents).toEqual([]); // 1 → 0 → 整顶消失
     expect(s2.stamina).toBe(5); // 帐篷抵挡过，不掉耐力
   });
@@ -94,7 +94,7 @@ describe('沙尘暴：四象限（帐篷 × 指南针）', () => {
   it('没有对应装备时选择无效并抛错', () => {
     const { s } = stormScenario('storm-invalid', [], 0);
     const ev = s.pendingEvents[0];
-    expect(() => resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false })).toThrow(GameError);
+    expect(() => resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentIndex: 0 })).toThrow(GameError);
     expect(() => resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: false, useCompass: true })).toThrow(GameError);
   });
 });
@@ -104,7 +104,7 @@ describe('草地暴雨：整顶帐篷的取舍', () => {
     const { s } = rainScenario('rain-1', [2, 3]);
     const ev = s.pendingEvents[0];
     expect(ev.kind).toBe('RAINSTORM');
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'RAINSTORM', useTent: true });
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'RAINSTORM', useTent: true, tentIndex: 0 });
     expect(s2.tents).toEqual([3]); // 耐久最低的一顶被整顶消耗
     expect(s2.stamina).toBe(5);
   });
@@ -161,17 +161,15 @@ describe('高温与泥沼', () => {
     let s = newGame('mud-timeout', calmOverrides(newGame('mud-timeout').map));
     const target = nearestTileOf(s, 'GRASS');
     const path = pathTo(s, target);
+    // 先在时间充裕时走到目标邻格（避免提前判负干扰）
+    s = walk(s, path.slice(0, -1));
+    // 最后一步前把天数设到 41：本步抵达第 42 天，泥沼额外 +1 → 43 > 42 → TIMEOUT
     s = mutate(s, (m) => {
       m.daysUsed = 41;
       m.maxDays = 42;
     });
     s = withWeather(s, target, 42, 'MUD');
-    // 移动到位：天数 41 + path.length；最后一步的抵达日应恰为 42，随后泥沼 +1 → 43 > 42
-    // 为保证确定性：将天数直接设为 42 - path.length + 1，使最后一步落在第 42 天
-    s = mutate(s, (m) => {
-      m.daysUsed = 42 - path.length;
-    });
-    s = walk(s, path);
+    s = performMove(s, path[path.length - 1]);
     expect(s.status).toBe('DEFEAT');
     expect(s.defeatReason).toBe('TIMEOUT');
     expect(s.daysUsed).toBe(43);

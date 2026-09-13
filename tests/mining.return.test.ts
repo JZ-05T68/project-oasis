@@ -1,23 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, performAction, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
-import { newGame, calmOverrides, walkTo, walk, mutate, mineTile, act, returnPath } from './helpers';
+import { newGame, calmOverrides, walkTo, walk, mutate, mineTile, nearestMineTile, act, returnPath } from './helpers';
 import { gameConfig } from '../src/game/config/gameConfig';
 
 function gotoMineA(seed: string) {
   let s = newGame(seed, calmOverrides(newGame(seed).map));
-  s = walkTo(s, mineTile(s, 'A'));
+  s = walkTo(s, nearestMineTile(s).tileId);
   return s;
 }
 
-describe('矿区：进入与价格锁定', () => {
-  it('首次进入矿区即锁定该矿区的动态评估价', () => {
+describe('矿区：进入与价格隐藏（v0.1.2a）', () => {
+  it('进入矿区不显示价格：最终鉴定价只有成功返城后才公布', () => {
     const s = gotoMineA('mine-lock');
     expect(s.phase).toBe('MINING');
-    expect(s.mineEntranceId).toBe(mineTile(s, 'A'));
-    expect(s.gemPrice).not.toBeNull();
-    const mine = s.map.mines.find((m) => m.slot === 'A')!;
-    expect(s.gemPrice).toBe(mine.gemPrice);
+    expect(s.gemPrice).toBeNull(); // 全程不公开
+    // 日志中也不出现任何精确价格
+    for (const entry of s.log) expect(entry.text).not.toMatch(/¥|\d+ 元\/kg/);
     expect(s.routeScore).not.toBeNull();
     expect(s.stats.outboundDays).toBe(s.daysUsed);
   });
@@ -32,17 +31,24 @@ describe('矿区：进入与价格锁定', () => {
       m.tents = [3];
       m.compasses = 1;
     });
-    s = walkTo(s, mineTile(s, 'A'));
+    s = walkTo(s, nearestMineTile(s).tileId);
     expect(s.phase).toBe('MINING');
     expect(s.routeScore).not.toBeNull(); // 评分随路线变化
-    expect(s.gemPrice).toBe(priceA); // 价格纹丝不动
+    expect(s.map.mines.find((m) => m.slot === 'A')!.gemPrice).toBe(priceA); // 价格纹丝不动
   });
 
-  it('价格由地图生成时确定：同 Seed 两局价格一致', () => {
+  it('价格由地图生成时确定：同 Seed 两局价格一致；返城后鉴定公布', () => {
     const a = gotoMineA('price-determinism');
     const b = gotoMineA('price-determinism');
-    expect(a.gemPrice).toBe(b.gemPrice);
+    expect(a.map.mines.map((m) => m.gemPrice)).toEqual(b.map.mines.map((m) => m.gemPrice));
     expect(a.routeScore).toBe(b.routeScore);
+    // 挖 1 天后返城 → 胜利结算公布鉴定价
+    let s = act(a, { type: 'MINE' });
+    s = performAction(s, { type: 'START_RETURN' });
+    s = walkTo(s, s.map.cityId);
+    expect(s.status).toBe('VICTORY');
+    expect(s.gemPrice).toBe(s.map.mines.find((m) => m.tileId === s.mineEntranceId)!.gemPrice);
+    expect(s.gemPrice).not.toBeNull();
   });
 
   it('价格在 clamp 范围 80~320 内', () => {
@@ -115,13 +121,9 @@ describe('时间模型与失败边界', () => {
     const target = getLegalMoves(s)[0];
     s = performMove(s, target); // 41→42 OK
     expect(s.daysUsed).toBe(42);
-    expect(s.status).toBe('ONGOING');
-    const next = getLegalMoves(s);
-    if (next.length > 0) {
-      s = performMove(s, next[0]); // 42→43 失败
-      expect(s.status).toBe('DEFEAT');
-      expect(s.defeatReason).toBe('TIMEOUT');
-    }
+    // v0.1.2a：第 42 天仍未回城 → 数学上已无法完成，立即判负（不允许再走 43 天）
+    expect(s.status).toBe('DEFEAT');
+    expect(['INSUFFICIENT_TIME', 'TIMEOUT']).toContain(s.defeatReason);
   });
 
   it('已用完最大天数仍未回城 → 超时失败', () => {

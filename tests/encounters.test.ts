@@ -168,8 +168,8 @@ describe('遭遇：每格每局最多一次', () => {
 });
 
 describe('遭遇概率配置', () => {
-  it('基础概率放入配置（25%）', () => {
-    expect(gameConfig.encounter.baseProbability).toBe(0.25);
+  it('基础概率放入配置（v0.1.2a：35%）', () => {
+    expect(gameConfig.encounter.baseProbability).toBe(0.35);
     expect(gameConfig.encounter.villageThiefRatio).toBe(0.5);
   });
 });

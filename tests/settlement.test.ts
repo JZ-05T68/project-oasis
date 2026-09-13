@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, performAction, computeSettlement, resolvePendingEvent, createNewGame, getLegalMoves } from '../src/game';
-import { newGame, calmOverrides, walkTo, mutate, mineTile, act } from './helpers';
+import { newGame, calmOverrides, walkTo, mutate, mineTile, nearestMineTile, act } from './helpers';
 
 
 describe('结算：胜利', () => {
-  it('完整往返：结算数字完整且正确', () => {
+  it('完整往返：结算数字完整且正确（最终鉴定价返城公布）', () => {
     let s = newGame('settle-victory', calmOverrides(newGame('settle-victory').map));
-    s = walkTo(s, mineTile(s, 'A'));
+    const mine = nearestMineTile(s);
+    s = walkTo(s, mine.tileId);
     s = act(s, { type: 'MINE' });
     s = act(s, { type: 'MINE' });
     const outbound = s.stats.outboundDays!;
@@ -22,34 +23,36 @@ describe('结算：胜利', () => {
     expect(v.miningDays).toBe(2);
     expect(v.returnDays).toBe(s.daysUsed - s.stats.returnStartDay!);
     expect(v.gemsKg).toBe(4);
-    expect(v.gemPrice).not.toBeNull();
+    expect(v.gemPrice).not.toBeNull(); // 胜利后公布
+    expect(v.gemPrice).toBe(s.map.mines.find((m) => m.tileId === mine.tileId)!.gemPrice);
     expect(v.gemRevenue).toBe(4 * v.gemPrice!);
     expect(v.finalAssets).toBe(s.cash + 4 * v.gemPrice!);
     expect(v.netProfit).toBe(v.finalAssets - 2000);
-    expect(v.mineSlot).toBe('A');
+    expect(v.mineSlot).toBe(mine.slot);
   });
 
   it('装备支出计入结算', () => {
     let s = newGame('settle-equip', calmOverrides(newGame('settle-equip').map));
     s = performAction(s, { type: 'BUY', item: 'tent' });
     s = performAction(s, { type: 'BUY', item: 'compass' });
-    s = walkTo(s, mineTile(s, 'B'));
+    const mine = nearestMineTile(s);
+    s = walkTo(s, mine.tileId);
     s = performAction(s, { type: 'START_RETURN' });
     s = walkTo(s, s.map.cityId);
     const v = computeSettlement(s);
     expect(v.equipmentSpent).toBe(500);
     expect(v.cashRemaining).toBe(1500);
-    expect(v.gemRevenue).toBe(0);
+    expect(v.gemRevenue).toBe(0); // 未挖矿
     expect(v.finalAssets).toBe(1500);
     expect(v.netProfit).toBe(-500);
-    expect(v.mineSlot).toBe('B');
+    expect(v.mineSlot).toBe(mine.slot);
   });
 
   it('天气预报包购买次数计入结算', () => {
     let s = newGame('settle-fc', calmOverrides(newGame('settle-fc').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
     s = performAction(s, { type: 'USE_FORECAST' });
-    s = walkTo(s, mineTile(s, 'A'));
+    s = walkTo(s, nearestMineTile(s).tileId);
     expect(computeSettlement(s).forecastPacks).toBe(1);
   });
 });
@@ -100,20 +103,25 @@ describe('结算：失败', () => {
 });
 
 describe('天气预报包的成本模型', () => {
-  it('购买压缩预算：maxDays 41 时走第 42 天即失败', () => {
+  it('购买压缩预算：maxDays 41 时，第 41 天仍在野外/城市 → 立即提前判负', () => {
     let s = newGame('fc-cost', calmOverrides(newGame('fc-cost').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' }); // 42→41
     s = mutate(s, (m) => {
       m.daysUsed = 40;
     });
-    const target = getLegalMoves(s)[0];
-    s = performMove(s, target); // 40→41 OK（41 == maxDays）
+    // 在城市停留到第 41 天（城市免费等待）
+    s = performAction(s, { type: 'WAIT' });
     expect(s.daysUsed).toBe(41);
-    expect(s.status).toBe('ONGOING');
-    const next = getLegalMoves(s)[0];
-    s = performMove(s, next); // 41→42 > 41 失败
+    // 第 41 天（== maxDays）剩余 0 天，已不可能完成往返 → v0.1.2a 提前判负
     expect(s.status).toBe('DEFEAT');
-    expect(s.defeatReason).toBe('TIMEOUT');
+    expect(s.defeatReason).toBe('INSUFFICIENT_TIME');
+  });
+
+  it('正常前期购买不会被误禁：day 0 购买成功', () => {
+    let s = newGame('fc-cost-ok', calmOverrides(newGame('fc-cost-ok').map));
+    s = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    expect(s.maxDays).toBe(41);
+    expect(s.status).toBe('ONGOING');
   });
 });
 
@@ -138,14 +146,14 @@ describe('Seed 可复现性', () => {
     const a = createNewGame('repro-a');
     const b = createNewGame('repro-b');
     expect(JSON.stringify(a.map.tiles)).not.toBe(JSON.stringify(b.map.tiles));
-    // 价格至少有一个矿区不同（30 对抽样中至少 25 对不同）
+    // 价格至少有一个矿区不同（30 对抽样中至少 15 对不同；新模型价格更集中）
     let differ = 0;
     for (let i = 0; i < 30; i++) {
       const x = createNewGame(`cmp-${i}`);
       const y = createNewGame(`cmp2-${i}`);
       if (x.map.mines[0].gemPrice !== y.map.mines[0].gemPrice) differ += 1;
     }
-    expect(differ).toBeGreaterThanOrEqual(25);
+    expect(differ).toBeGreaterThanOrEqual(15);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   WeatherType,
 } from '../src/game/types';
 import { bfsPath, gridNeighbors, isNormalTile } from '../src/game/map/grid';
+import { lowestDurabilityIndex } from '../src/game/rules/equipment';
 import { WEATHER_TABLE_DAYS } from '../src/game/rules/weather';
 
 /** 创建新游戏（默认固定 Seed） */
@@ -51,15 +52,16 @@ export function findTiles(state: GameState, terrain: TerrainType): TileId[] {
     .map((t) => t.id);
 }
 
-/** 事件默认策略（与 Bot default 一致）：装备全用、早期追贼、八折 */
+/** 事件默认策略（与 Bot default 一致）：装备全用、早期追贼、八折；帐篷选耐久最低的一顶 */
 function defaultEventChoice(state: GameState): EventChoice | null {
   const ev = state.pendingEvents[0];
   if (!ev) return null;
+  const tentIdx = state.tents.length > 0 ? lowestDurabilityIndex(state.tents) : undefined;
   switch (ev.kind) {
     case 'SANDSTORM':
-      return { kind: 'SANDSTORM', useTent: state.tents.length > 0, useCompass: state.compasses > 0 };
+      return { kind: 'SANDSTORM', useTent: state.tents.length > 0, useCompass: state.compasses > 0, tentIndex: tentIdx };
     case 'RAINSTORM':
-      return { kind: 'RAINSTORM', useTent: state.tents.length > 0 };
+      return { kind: 'RAINSTORM', useTent: state.tents.length > 0, tentIndex: tentIdx };
     case 'CARAVAN':
       return state.cash >= 300 && state.tents.length === 0
         ? { kind: 'CARAVAN', action: 'BUY_TENT' }
@@ -130,6 +132,16 @@ export function walkTo(state: GameState, target: TileId): GameState {
 /** 获取指定矿区的 tileId */
 export function mineTile(state: GameState, slot: 'A' | 'B'): TileId {
   return state.map.mines.find((m) => m.slot === slot)!.tileId;
+}
+
+/** 获取当前距玩家更近的矿区（减少测试中长程走路触发提前判负） */
+export function nearestMineTile(state: GameState): { tileId: TileId; slot: 'A' | 'B' } {
+  let best = { tileId: state.map.mines[0].tileId, slot: state.map.mines[0].slot, len: Infinity };
+  for (const m of state.map.mines) {
+    const len = pathTo(state, m.tileId).length;
+    if (len < best.len) best = { tileId: m.tileId, slot: m.slot, len };
+  }
+  return { tileId: best.tileId, slot: best.slot };
 }
 
 /** 找到距当前位置最近的一个指定地形格子 */
