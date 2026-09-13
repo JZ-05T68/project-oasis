@@ -1,0 +1,14 @@
+:root {
+  color-scheme: dark;
+  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #141b18;
+  color: #e8e4d8;
+}
+
+.app-root {
+  padding: 24px;
+}
