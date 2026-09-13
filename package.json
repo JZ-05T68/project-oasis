@@ -1,7 +1,7 @@
 {
   "name": "project-oasis",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Project Oasis - a deterministic turn-based desert trade strategy game",
   "type": "module",
   "scripts": {
