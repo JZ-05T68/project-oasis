@@ -1,5 +1,5 @@
 import { createNewGame, performAction, performMove, resolvePendingEvent } from '../game';
-import type { EventChoice, GameAction, GameState, NodeId } from '../game/types';
+import type { EventChoice, GameAction, GameState, TileId } from '../game/types';
 import { hashSeed, nextRandom } from '../game/random/rng';
 import { buildFairView, FairView } from './fairView';
 import type { RunResult } from './metrics';
@@ -19,7 +19,7 @@ export interface BotStrategy {
 }
 
 export type BotDecision =
-  | { type: 'MOVE'; toNodeId: NodeId }
+  | { type: 'MOVE'; toTileId: TileId }
   | { type: 'ACTION'; action: GameAction }
   | { type: 'EVENT'; choice: EventChoice };
 
@@ -46,7 +46,7 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     a.ret += 1;
   }
   const edgeUses: RunResult['edgeUses'] = {};
-  const countEdges = (list: NodeId[]) => {
+  const countEdges = (list: TileId[]) => {
     for (let i = 0; i < list.length - 1; i++) {
       const key = [list[i], list[i + 1]].sort().join('~');
       edgeUses[key] = (edgeUses[key] ?? 0) + 1;
@@ -69,7 +69,7 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     outboundDays: settlementDays.outboundDays,
     miningDays: settlementDays.miningDays,
     returnDays: settlementDays.returnStartDay !== null ? state.daysUsed - settlementDays.returnStartDay : 0,
-    forecastCount: state.stats.forecastCount,
+    forecastPacks: state.stats.forecastPacks,
     gemsKg: state.gemsKg,
     gemPrice: state.gemPrice,
     gemRevenue: state.status === 'VICTORY' ? Math.round(state.gemsKg * (state.gemPrice ?? 0)) : 0,
@@ -108,7 +108,7 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
     const decision = bot.decide(view, rng);
 
     if (decision.type === 'MOVE') {
-      state = performMove(state, decision.toNodeId);
+      state = performMove(state, decision.toTileId);
     } else if (decision.type === 'ACTION') {
       const action = decision.action;
       if (action.type === 'BUY') {
@@ -220,7 +220,7 @@ function emptyResult(): RunResult {
     outboundDays: null,
     miningDays: 0,
     returnDays: 0,
-    forecastCount: 0,
+    forecastPacks: 0,
     gemsKg: 0,
     gemPrice: null,
     gemRevenue: 0,

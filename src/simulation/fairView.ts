@@ -2,46 +2,48 @@ import type {
   ActionInfo,
   ForecastView,
   GameState,
+  MineInfo,
   MineSlot,
-  NodeId,
-  PendingEvent,
   Phase,
   TerrainType,
+  TileId,
   WeatherType,
 } from '../game/types';
 import { gameConfig } from '../game/config/gameConfig';
 import { getLegalMoves, getAvailableActions, getCurrentWeather, isTerrainKnown } from '../game';
+import { gridNeighbors } from '../game/map/grid';
 
 /**
  * FairView —— Bot 能看到的「玩家视角」信息。
  *
  * 结构性防作弊：Bot 只拿到本视图，拿不到原始 GameState，
- * 因此无法读取：
- *  - 未来天气表（state.weather）
- *  - 未触发的事件 roll 表（state.encounterRolls）
- *  - 未抵达绿洲的干涸状态
- *  - RNG 内部状态
- * 战争迷雾：未知地形显示为 null（道路拓扑按规则始终完整可见）。
+ * 因此无法读取：未来天气表、遭遇预生成表、未抵达绿洲的干涸状态、RNG 内部状态。
+ * 战争迷雾：未知地形显示为 null（道路拓扑/格子坐标按规则始终可见）。
  */
 
-export interface FairMapNode {
-  id: NodeId;
+export interface FairTile {
+  id: TileId;
+  row: number;
+  col: number;
   /** 已知地形；未知（战争迷雾）为 null */
   terrain: TerrainType | null;
   isCity: boolean;
   isMine: boolean;
-  /** 仅矿区入口：矿区档位（公开信息，对应固定收购价） */
+  /** 仅矿区格：档位与公开固定收购价（开局即知） */
   mineSlot?: MineSlot;
-  /** 矿区入口的公开固定收购价 */
-  minePrice: number | null;
+  minePrice?: number;
 }
 
 export interface FairMap {
-  nodes: Record<NodeId, FairMapNode>;
-  adjacency: Record<NodeId, NodeId[]>;
-  edges: Array<[NodeId, NodeId]>;
-  cityId: NodeId;
-  mineIds: NodeId[];
+  rows: number;
+  cols: number;
+  cityId: TileId;
+  tiles: Record<TileId, FairTile>;
+  /** 两个矿区的完整公开情报（价格/坐标，开局即可见） */
+  mines: MineInfo[];
+  mineIds: TileId[];
+  /** 四方向邻居（含边界裁剪） */
+  neighbors(id: TileId): TileId[];
 }
 
 export interface FairView {
@@ -50,76 +52,80 @@ export interface FairView {
   maxDays: number;
   daysRemaining: number;
   phase: Phase;
-  position: NodeId;
+  position: TileId;
   cash: number;
   stamina: number;
   maxStamina: number;
   tents: number[];
   compasses: number;
   gemsKg: number;
+  forecastCharges: number;
 
-  mineEntranceId: NodeId | null;
+  mineEntranceId: TileId | null;
   gemPrice: number | null;
   routeScore: number | null;
 
-  visitedOutbound: NodeId[];
-  visitedReturn: NodeId[];
-  explored: NodeId[];
-  intelKnown: NodeId[];
-  /** 亲自到过的绿洲的休整记录 */
-  oasisRestUsed: Record<NodeId, boolean>;
+  visitedOutbound: TileId[];
+  visitedReturn: TileId[];
+  explored: TileId[];
+  intelKnown: TileId[];
+  oasisRestUsed: Record<TileId, boolean>;
   /** 亲自到过的绿洲的干涸状态（未到过的绿洲不含在内） */
-  knownOasisDrought: Record<NodeId, boolean>;
+  knownOasisDrought: Record<TileId, boolean>;
 
   map: FairMap;
   /** 当前格今天的天气（身临其境可知） */
   weatherToday: WeatherType;
-  /** 最近一次购买的天气预报（若有） */
+  /** 最近一次天气预报（若有） */
   lastForecast: ForecastView | null;
 
-  legalMoves: NodeId[];
+  legalMoves: TileId[];
   availableActions: ActionInfo[];
-  /** 待决事件队首（若有） */
-  pendingEvent: PendingEvent | null;
+  pendingEvent: GameState['pendingEvents'][0] | null;
 }
 
 function buildFairMap(state: GameState): FairMap {
-  const nodes: Record<NodeId, FairMapNode> = {};
-  for (const id of Object.keys(state.map.nodes)) {
-    const n = state.map.nodes[id];
+  const tiles: Record<TileId, FairTile> = {};
+  for (const id of Object.keys(state.map.tiles)) {
+    const t = state.map.tiles[id];
     const known = isTerrainKnown(state, id);
-    const isMine = n.terrain === 'MINE';
-    const isCity = n.terrain === 'CITY';
-    nodes[id] = {
+    const isMine = t.terrain === 'MINE';
+    const isCity = t.terrain === 'CITY';
+    const mine = isMine ? state.map.mines.find((m) => m.tileId === id) : undefined;
+    tiles[id] = {
       id,
-      terrain: known ? n.terrain : null,
+      row: t.row,
+      col: t.col,
+      terrain: known ? t.terrain : null,
       isCity,
       isMine,
-      mineSlot: isMine ? n.mineSlot : undefined,
-      minePrice: isMine && n.mineSlot ? gameConfig.mineBasePrice[n.mineSlot] : null,
+      mineSlot: isMine ? t.mineSlot : undefined,
+      minePrice: mine?.gemPrice,
     };
   }
   return {
-    nodes,
-    adjacency: state.map.adjacency,
-    edges: state.map.edges,
+    rows: state.map.rows,
+    cols: state.map.cols,
     cityId: state.map.cityId,
-    mineIds: state.map.mineIds,
+    tiles,
+    mines: state.map.mines,
+    mineIds: state.map.mines.map((m) => m.tileId),
+    neighbors: (id: TileId) => gridNeighbors(state.map, id),
   };
 }
 
 export function buildFairView(state: GameState): FairView {
-  const knownOasisDrought: Record<NodeId, boolean> = {};
+  const knownOasisDrought: Record<TileId, boolean> = {};
   for (const id of state.explored) {
-    if (state.map.nodes[id]?.terrain === 'OASIS') {
-      knownOasisDrought[id] = !!state.oasisDrought[id];
+    if (state.map.tiles[id]?.terrain === 'OASIS') {
+      knownOasisDrought[id] = !!state.map.drought[id];
     }
   }
-  const view: FairView = {
+  return {
     seed: state.seed,
     day: state.daysUsed,
-    maxDays: gameConfig.maxDays,
-    daysRemaining: gameConfig.maxDays - state.daysUsed,
+    maxDays: state.maxDays,
+    daysRemaining: state.maxDays - state.daysUsed,
     phase: state.phase,
     position: state.position,
     cash: state.cash,
@@ -128,6 +134,7 @@ export function buildFairView(state: GameState): FairView {
     tents: state.tents,
     compasses: state.compasses,
     gemsKg: state.gemsKg,
+    forecastCharges: state.forecastCharges,
     mineEntranceId: state.mineEntranceId,
     gemPrice: state.gemPrice,
     routeScore: state.routeScore,
@@ -144,5 +151,4 @@ export function buildFairView(state: GameState): FairView {
     availableActions: getAvailableActions(state),
     pendingEvent: state.pendingEvents[0] ?? null,
   };
-  return view;
 }

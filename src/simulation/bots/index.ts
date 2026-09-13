@@ -1,15 +1,15 @@
-import type { BotStrategy, BotRng } from './types';
+import type { BotRng, BotStrategy } from './types';
 import type { EventChoice } from '../../game/types';
-import { baseBotDecide, pickFrom, type BaseBotConfig } from './utils';
 import type { FairView } from '../fairView';
+import { baseBotDecide, pickFrom, type BaseBotConfig } from './utils';
 
 /**
- * v0.1.1 首批 12 个策略 Bot。
+ * v0.1.2 策略 Bot（格子地图版，供 Smoke Simulation 使用）。
  * 全部只通过 FairView（玩家视角）决策、只通过引擎 Action API 行动。
  */
 
 /* ------------------------------------------------------------------ */
-/* 1. RandomBot：最低基线，随机合法决策                                  */
+/* 1. RandomBot：最低基线，随机合法决策                                 */
 /* ------------------------------------------------------------------ */
 
 function randomEventChoice(view: FairView, rng: BotRng): EventChoice | null {
@@ -36,8 +36,6 @@ function randomEventChoice(view: FairView, rng: BotRng): EventChoice | null {
       return { kind: 'THIEF', action: rng() < 0.5 ? 'CHASE' : 'GIVE_UP' };
     case 'MARKET':
       return { kind: 'MARKET', action: rng() < 0.5 ? 'TAKE_DISCOUNT' : 'WORK' };
-    case 'FORECAST_OFFER':
-      return { kind: 'FORECAST_OFFER', accept: rng() < 0.3 };
     default:
       return null;
   }
@@ -56,21 +54,18 @@ export const randomBot: BotStrategy = {
         : { type: 'ACTION', action: { type: 'START_RETURN' } };
     }
     const actions = view.availableActions.filter((a) => !a.disabled);
-    if (actions.length > 0 && rng() < 0.25) {
+    if (actions.length > 0 && rng() < 0.2) {
       return { type: 'ACTION', action: pickFrom(actions, rng).action };
     }
     if (view.legalMoves.length === 0) {
-      // 无路可走：交给引擎的路线中断判定（例如原地休整）
-      const rest = actions.find((a) => a.action.type === 'REST');
-      if (rest) return { type: 'ACTION', action: rest.action };
       throw new Error('RandomBot 无可行动作');
     }
-    return { type: 'MOVE', toNodeId: pickFrom(view.legalMoves, rng) };
+    return { type: 'MOVE', toTileId: pickFrom(view.legalMoves, rng) };
   },
 };
 
 /* ------------------------------------------------------------------ */
-/* 2～12. 基于 baseBotDecide 的策略 Bot                                 */
+/* 2～11. 基于 baseBotDecide 的策略 Bot                                 */
 /* ------------------------------------------------------------------ */
 
 function makeBot(cfg: BaseBotConfig): BotStrategy {
@@ -86,6 +81,7 @@ export const shortestPathBot = makeBot({
   eventPolicy: 'default',
   forecast: 'never',
   rest: false,
+  wait: false,
 });
 
 export const safeBot = makeBot({
@@ -97,6 +93,7 @@ export const safeBot = makeBot({
   eventPolicy: 'default',
   forecast: 'never',
   rest: true,
+  wait: false,
 });
 
 export const preparedBot = makeBot({
@@ -108,6 +105,7 @@ export const preparedBot = makeBot({
   eventPolicy: 'default',
   forecast: 'never',
   rest: true,
+  wait: false,
 });
 
 export const cheapBot = makeBot({
@@ -119,28 +117,31 @@ export const cheapBot = makeBot({
   eventPolicy: 'cheap',
   forecast: 'never',
   rest: false,
+  wait: false,
 });
 
 export const forecastBot = makeBot({
   name: 'ForecastBot',
   target: { kind: 'NEAREST' },
-  movement: 'SAFEST',
+  movement: 'SHORTEST',
   equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 100 },
   miningBuffer: 5,
   eventPolicy: 'default',
   forecast: 'heuristic',
   rest: true,
+  wait: true,
 });
 
 export const noForecastBot = makeBot({
   name: 'NoForecastBot',
   target: { kind: 'NEAREST' },
-  movement: 'SAFEST',
+  movement: 'SHORTEST',
   equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 100 },
   miningBuffer: 5,
   eventPolicy: 'default',
   forecast: 'never',
   rest: true,
+  wait: false,
 });
 
 export const greedyMinerBot = makeBot({
@@ -152,6 +153,7 @@ export const greedyMinerBot = makeBot({
   eventPolicy: 'default',
   forecast: 'never',
   rest: false,
+  wait: false,
 });
 
 export const conservativeMinerBot = makeBot({
@@ -163,62 +165,31 @@ export const conservativeMinerBot = makeBot({
   eventPolicy: 'default',
   forecast: 'never',
   rest: false,
+  wait: false,
 });
 
-export const southMineBot = makeBot({
-  name: 'SouthMineBot',
-  target: { kind: 'FIXED', mineId: 'mineS' },
+export const mineABot = makeBot({
+  name: 'MineABot',
+  target: { kind: 'FIXED', slot: 'A' },
   movement: 'SHORTEST',
   equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 0 },
   miningBuffer: 5,
   eventPolicy: 'default',
   forecast: 'never',
   rest: false,
+  wait: false,
 });
 
-export const middleMineBot = makeBot({
-  name: 'MiddleMineBot',
-  target: { kind: 'FIXED', mineId: 'mineC' },
+export const mineBBot = makeBot({
+  name: 'MineBBot',
+  target: { kind: 'FIXED', slot: 'B' },
   movement: 'SHORTEST',
   equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 0 },
   miningBuffer: 5,
   eventPolicy: 'default',
   forecast: 'never',
   rest: false,
-});
-
-export const northMineBot = makeBot({
-  name: 'NorthMineBot',
-  target: { kind: 'FIXED', mineId: 'mineN' },
-  movement: 'SHORTEST',
-  equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 0 },
-  miningBuffer: 5,
-  eventPolicy: 'default',
-  forecast: 'never',
-  rest: false,
-});
-
-/** 天气预报价值对照（北矿高风险路线）：两者唯一差异是是否使用天气预报 */
-export const northForecastBot = makeBot({
-  name: 'NorthForecastBot',
-  target: { kind: 'FIXED', mineId: 'mineN' },
-  movement: 'SAFEST',
-  equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 0 },
-  miningBuffer: 5,
-  eventPolicy: 'default',
-  forecast: 'heuristic',
-  rest: false,
-});
-
-export const northNoForecastBot = makeBot({
-  name: 'NorthNoForecastBot',
-  target: { kind: 'FIXED', mineId: 'mineN' },
-  movement: 'SAFEST',
-  equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 0 },
-  miningBuffer: 5,
-  eventPolicy: 'default',
-  forecast: 'never',
-  rest: false,
+  wait: false,
 });
 
 /** 全部策略（含 RandomBot） */
@@ -232,11 +203,8 @@ export const ALL_BOTS: BotStrategy[] = [
   noForecastBot,
   greedyMinerBot,
   conservativeMinerBot,
-  southMineBot,
-  middleMineBot,
-  northMineBot,
-  northForecastBot,
-  northNoForecastBot,
+  mineABot,
+  mineBBot,
 ];
 
 export const BOT_BY_NAME: Record<string, BotStrategy> = Object.fromEntries(

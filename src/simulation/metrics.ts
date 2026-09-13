@@ -1,4 +1,4 @@
-import type { DefeatReason, NodeId } from '../game/types';
+import type { DefeatReason, TileId } from '../game/types';
 
 /** 单局仿真结果（由 runner 从引擎终态提取） */
 export interface RunResult {
@@ -9,13 +9,13 @@ export interface RunResult {
   /** 运行期错误（应当为 0；出现即框架 Bug） */
   error: string | null;
 
-  mineId: NodeId | null;
+  mineId: TileId | null;
   routeScore: number | null;
   daysUsed: number;
   outboundDays: number | null;
   miningDays: number;
   returnDays: number;
-  forecastCount: number;
+  forecastPacks: number;
   gemsKg: number;
   gemPrice: number | null;
   gemRevenue: number;
@@ -35,7 +35,7 @@ export interface RunResult {
   /** 事件记录：kind / 选项 / 时间与现金变化 */
   events: Array<{ kind: string; choice: string; dayDelta: number; cashDelta: number }>;
 
-  nodeVisits: Record<NodeId, { out: number; ret: number }>;
+  nodeVisits: Record<TileId, { out: number; ret: number }>;
   edgeUses: Record<string, number>;
 }
 
@@ -81,7 +81,7 @@ export interface BotSummary {
   avgOutboundDays: number;
   avgMiningDays: number;
   avgReturnDays: number;
-  avgForecastCount: number;
+  avgForecastPacks: number;
   avgFinalDay: number;
 
   avgTentsBought: number;
@@ -94,7 +94,7 @@ export interface BotSummary {
 
   avgGemsKgWins: number;
   /** 矿区选择分布 */
-  mineVisits: Record<NodeId, number>;
+  mineVisits: Record<TileId, number>;
   /** 平均路线风险评分（有值的局） */
   avgRouteScore: number | null;
 }
@@ -124,7 +124,7 @@ export function aggregateBot(results: RunResult[]): BotSummary {
       failureCounts[r.defeatReason as keyof typeof failureCounts] += 1;
     }
   }
-  const mineVisits: Record<NodeId, number> = {};
+  const mineVisits: Record<TileId, number> = {};
   for (const r of results) {
     if (r.mineId) mineVisits[r.mineId] = (mineVisits[r.mineId] ?? 0) + 1;
   }
@@ -160,7 +160,7 @@ export function aggregateBot(results: RunResult[]): BotSummary {
     avgOutboundDays: round2(mean(results.map((r) => r.outboundDays ?? r.daysUsed))),
     avgMiningDays: round2(mean(results.map((r) => r.miningDays))),
     avgReturnDays: round2(mean(results.map((r) => r.returnDays))),
-    avgForecastCount: round2(mean(results.map((r) => r.forecastCount))),
+    avgForecastPacks: round2(mean(results.map((r) => r.forecastPacks))),
     avgFinalDay: round2(mean(results.map((r) => r.daysUsed))),
     avgTentsBought: round2(mean(results.map((r) => r.tentsBought))),
     avgCompassesBought: round2(mean(results.map((r) => r.compassesBought))),
