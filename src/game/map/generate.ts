@@ -10,16 +10,13 @@ import type {
 import { gameConfig } from '../config/gameConfig';
 import { hashSeed, nextRandom } from '../random/rng';
 import {
-  bfsPath,
-  countNodeDisjointPaths,
-  dijkstraPath,
   existsPathExcluding,
-  gridNeighbors,
+  minCostRoundTrip,
   tileIdOf,
 } from './grid';
 
 /**
- * v0.1.2 随机地图生成。
+ * v0.1.2 随机地图生成（v0.1.2a 规则修订）。
  *
  * - 10×12 格子；城市固定左下角 (rows-1, 0)；两个矿区固定在最右列 (col=cols-1)，
  *   行由 Seed 随机并满足最小行距。
@@ -27,17 +24,10 @@ import {
  * - 天气、遭遇、绿洲干涸、矿区价值全部在生成阶段按 Seed 确定。
  * - 合法性：城市与每个矿区之间存在两条内部格子完全不重合的路径
  *   （Menger 单点删除校验）；不满足时用 `seed#mapRetryN` 确定性重试。
+ * - 矿区价值 = 最短合法往返方案的客观风险（v0.1.2a）。
  */
 
 export const WEATHER_TABLE_DAYS = gameConfig.maxDays + 4;
-
-/** 严重天气（用于矿区价值评估的天气负载） */
-const SEVERE_WEATHER: ReadonlySet<WeatherType> = new Set([
-  'HEAT',
-  'SANDSTORM',
-  'RAINSTORM',
-  'MUD',
-]);
 
 type NormalTerrain = 'GRASS' | 'DESERT' | 'VILLAGE' | 'OASIS';
 
@@ -206,15 +196,6 @@ function tileRiskOf(map: GameMap, id: TileId): number {
   return gameConfig.tileRisk[map.tiles[id].terrain] ?? 0;
 }
 
-/** Dijkstra 权重：地形风险的正值化版本（村庄/绿洲的负风险用小正值表示“有吸引力”） */
-function routeWeight(map: GameMap, id: TileId): number {
-  return Math.min(10, Math.max(0.5, tileRiskOf(map, id)));
-}
-
-function isSevere(w: WeatherType): boolean {
-  return SEVERE_WEATHER.has(w);
-}
-
 function cfgJitter(): { min: number; max: number } {
   return { min: gameConfig.mineValuation.jitterMin, max: gameConfig.mineValuation.jitterMax };
 }
@@ -222,107 +203,37 @@ function cfgJitter(): { min: number; max: number } {
 export function evaluateMine(map: GameMap, slot: MineSlot, mineId: TileId, jitter: number): MineInfo {
   const cfg = gameConfig.mineValuation;
   const cityId = map.cityId;
-  const isMineTile = (id: TileId) => map.tiles[id].terrain === 'MINE';
-  /** 路径中的普通格（去返程“烧格”与风险统计口径一致） */
-  const normalTilesOf = (path: TileId[]): TileId[] =>
-    path.filter((id) => id !== cityId && id !== mineId && !isMineTile(id));
-  // 任何路线都不得穿过矿区格（走进矿区即触发进矿，不是过路）
-  const notAnyMine = (id: TileId) => !isMineTile(id);
-
-  // 最短路径长度（跳数）
-  const shortest = bfsPath(map, cityId, mineId);
-  const shortestLen = shortest ? shortest.length - 1 : map.rows + map.cols;
-
-  interface RoutePair {
-    outboundPath: TileId[];
-    outboundRisk: number;
-    returnPath: TileId[];
-    returnRisk: number;
-    pairCost: number;
-  }
-
-  const makePair = (outboundPath: TileId[], returnPath: TileId[]): RoutePair => {
-    const outboundTiles = normalTilesOf(outboundPath);
-    const returnTiles = normalTilesOf(returnPath);
-    const outboundRisk = outboundTiles.reduce((s, id) => s + tileRiskOf(map, id), 0);
-    const returnRisk = returnTiles.reduce((s, id) => s + tileRiskOf(map, id), 0);
-    const pairCost = outboundRisk * cfg.outboundRiskWeight + returnRisk * cfg.returnRiskWeight;
-    return { outboundPath, outboundRisk, returnPath, returnRisk, pairCost };
-  };
-
-  const candidates: RoutePair[] = [];
 
   /**
-   * 策略 1（去程优先）：从矿区每个邻格方向接近，保证覆盖所有可行走廊。
-   * 对每个候选去程计算“烧掉它之后”的最优合法返程——与真实玩家的最优规划一致，
-   * 不会把“自己封死自己”的坏路线记为 0 风险。
+   * v0.1.2a 价格基准：该矿区「最短合法往返方案」（城市→矿区→城市，
+   * 去返程普通格不重复）的客观危险程度。
+   * - 主准则：往返总长度最小（最小费用流，精确）；
+   * - 同长度：取累计客观风险最低者（确定性次准则）。
+   * 与玩家实际路线完全无关——绕路/受伤/用装备不可能抬高价格。
    */
-  const seenOutbound = new Set<string>();
-  for (const nb of gridNeighbors(map, mineId)) {
-    const approach = dijkstraPath(map, cityId, nb, (id) => routeWeight(map, id), [], notAnyMine);
-    if (!approach) continue;
-    const outboundPath = [...approach.path, mineId];
-    const key = outboundPath.join('>');
-    if (seenOutbound.has(key)) continue;
-    seenOutbound.add(key);
-    const bestReturn = dijkstraPath(
-      map, mineId, cityId, (id) => routeWeight(map, id), normalTilesOf(outboundPath), notAnyMine,
-    );
-    if (bestReturn) candidates.push(makePair(outboundPath, bestReturn.path));
-  }
-
-  /**
-   * 策略 2（返程优先，兜底）：角矿区可能被“最低风险去程”封死归途，
-   * 但 Menger 校验保证不共享普通格的双路径客观存在。先贪心一条返程，
-   * 再在返程烧格约束下找去程；仍失败则由 tryGenerate 确定性重试整张地图。
-   */
-  if (candidates.length === 0) {
-    const ret = dijkstraPath(map, mineId, cityId, (id) => routeWeight(map, id), [], notAnyMine);
-    if (ret) {
-      const out = dijkstraPath(
-        map, cityId, mineId, (id) => routeWeight(map, id), normalTilesOf(ret.path),
-        (id) => id === mineId || notAnyMine(id),
-      );
-      if (out) candidates.push(makePair(out.path, ret.path));
-    }
-  }
-
-  if (candidates.length === 0) {
-    // 无合法往返组合（贪心双策略均失败）；交给 tryGenerate 换派生 Seed 重试
+  const trip = minCostRoundTrip(
+    map,
+    cityId,
+    mineId,
+    (id) => positiveRiskTenths(map, id),
+    (id) => id !== mineId && map.tiles[id].terrain === 'MINE',
+  );
+  if (!trip) {
+    // Menger 校验保证不会发生；发生则由 tryGenerate 确定性重试整张地图
     throw new Error(`矿区 ${mineId} 无合法往返路线`);
   }
-  const best = candidates.reduce((a, b) => (b.pairCost < a.pairCost ? b : a));
-
-  const returnPathCount = countNodeDisjointPaths(
-    map, mineId, cityId, normalTilesOf(best.outboundPath), cfg.returnPathCountCap,
+  const routeTiles = [...trip.pathA, ...trip.pathB].filter(
+    (id) => id !== cityId && id !== mineId,
   );
-
-  // 天气负载：去返程路径格的平均恶劣天气天数
-  const returnTiles = normalTilesOf(best.returnPath);
-  const outboundTiles = normalTilesOf(best.outboundPath);
-  const routeTilesSet = new Set<TileId>([...outboundTiles, ...returnTiles]);
-  let severeTotal = 0;
-  for (const id of routeTilesSet) {
-    const table = map.weather[id];
-    for (let d = 0; d < gameConfig.maxDays; d++) {
-      if (table[d] && isSevere(table[d])) severeTotal += 1;
-    }
+  const routeTilesSet = new Set<TileId>(routeTiles);
+  if (routeTilesSet.size !== routeTiles.length) {
+    throw new Error(`矿区 ${mineId} 往返方案普通格重叠（内部错误）`);
   }
-  const weatherLoad = routeTilesSet.size === 0 ? 0 : severeTotal / routeTilesSet.size;
+  const roundTripRisk =
+    Math.round([...routeTilesSet].reduce((s, id) => s + tileRiskOf(map, id), 0) * 10) / 10;
+  const roundTripLength = trip.pathA.length + trip.pathB.length - 2; // 端点城市/矿区各计一次
 
-  const scarcityPenalty =
-    Math.max(0, cfg.minReturnAlternatives - returnPathCount) * cfg.scarcityPerMissing;
-
-  const difficultyScore =
-    Math.round(
-      (shortestLen * cfg.distanceWeight +
-        best.outboundRisk * cfg.outboundRiskWeight +
-        best.returnRisk * cfg.returnRiskWeight +
-        scarcityPenalty +
-        weatherLoad * cfg.weatherWeight) *
-        10,
-    ) / 10;
-
+  const difficultyScore = roundTripRisk;
   const stars = computeStarRating(difficultyScore);
   const gemPrice = Math.max(
     cfg.clampMin,
@@ -338,14 +249,17 @@ export function evaluateMine(map: GameMap, slot: MineSlot, mineId: TileId, jitte
     difficultyScore,
     estimatedRisk: stars,
     detail: {
-      shortestLen,
-      outboundRisk: Math.round(best.outboundRisk * 10) / 10,
-      returnRisk: Math.round(best.returnRisk * 10) / 10,
-      returnPathCount,
-      weatherLoad: Math.round(weatherLoad * 100) / 100,
+      roundTripLength,
+      roundTripRisk,
       jitter,
     },
   };
+}
+
+/** 正值化风险（十分位整数）：村庄/绿洲的负风险用小正值表示“有吸引力” */
+function positiveRiskTenths(map: GameMap, id: TileId): number {
+  const r = tileRiskOf(map, id);
+  return Math.round(Math.min(10, Math.max(0.5, r)) * 10);
 }
 
 export function computeStarRating(score: number): number {

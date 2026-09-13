@@ -241,3 +241,183 @@ export function existsPathExcluding(
   }
   return false;
 }
+
+/* ------------------------------------------------------------------ */
+/* 最小费用往返方案（v0.1.2a 矿价基准）                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 节点拆分最小费用流（SPFA 最短增广路，流量恒为 2）。
+ *
+ * 建模：from → to 的 2 单位「普通格节点不重复」流 ⇔ 一对内部普通格完全不重合的
+ * 路径（from/to 为豁免端点，可共用）。两单位即去程 + 返程。
+ *
+ * 代价：主准则 = 普通格跳数（每格 1），次准则 = nodeCost 给出的正值化风险整数，
+ * combined = hops * COST_SCALE + riskTenths。SSP 保证两次增广总代价 = 全局最小
+ * 往返总长度，并在等长方案中确定性偏好累计风险更低者。
+ */
+export function minCostRoundTrip(
+  map: GameMap,
+  from: TileId,
+  to: TileId,
+  nodeCost: (id: TileId) => number,
+  blocked: (id: TileId) => boolean = () => false,
+): { pathA: TileId[]; pathB: TileId[]; totalCost: number } | null {
+  const COST_SCALE = 100000;
+
+  interface Edge {
+    to: number;
+    rev: number;
+    cap: number;
+    cost: number;
+    fwd: boolean; // true = 前向边；false = 残量反向边
+  }
+  const edges: Edge[] = [];
+  const graph: number[][] = [];
+  const addNode = (): number => {
+    graph.push([]);
+    return graph.length - 1;
+  };
+  const addEdge = (u: number, v: number, cap: number, cost: number): void => {
+    graph[u].push(edges.length);
+    edges.push({ to: v, rev: edges.length + 1, cap, cost, fwd: true });
+    graph[v].push(edges.length);
+    edges.push({ to: u, rev: edges.length - 1, cap: 0, cost: -cost, fwd: false });
+  };
+
+  const S = addNode();
+  const T = addNode();
+
+  const inOf = new Map<TileId, number>();
+  const outOf = new Map<TileId, number>();
+  const tileOfIn = new Map<number, TileId>();
+  for (const id of Object.keys(map.tiles)) {
+    if (blocked(id)) continue; // 不可通行格（另一个矿区等）完全不参与建图
+    const i = addNode();
+    const o = addNode();
+    inOf.set(id, i);
+    outOf.set(id, o);
+    tileOfIn.set(i, id);
+    const isEndpoint = id === from || id === to;
+    // 端点（城市/矿区）容量 2（豁免、可共用）；普通格容量 1（节点不重复约束）
+    addEdge(i, o, isEndpoint ? 2 : 1, isEndpoint ? 0 : COST_SCALE + nodeCost(id));
+  }
+  for (const id of Object.keys(map.tiles)) {
+    if (blocked(id)) continue;
+    for (const nb of gridNeighbors(map, id)) {
+      if (blocked(nb) || !inOf.has(nb)) continue;
+      addEdge(outOf.get(id)!, inOf.get(nb)!, 1, 0);
+    }
+  }
+  addEdge(S, inOf.get(from)!, 2, 0);
+  addEdge(outOf.get(to)!, T, 2, 0);
+
+  // ---- SPFA 最短增广路（残量网络含负边；SSP 保证无负环）----
+  const spfa = (): { prevEdge: number[]; distT: number } | null => {
+    const dist = new Array<number>(graph.length).fill(Infinity);
+    const inQueue = new Array<boolean>(graph.length).fill(false);
+    const prevEdge = new Array<number>(graph.length).fill(-1);
+    dist[S] = 0;
+    const queue: number[] = [S];
+    inQueue[S] = true;
+    while (queue.length > 0) {
+      const u = queue.shift()!;
+      inQueue[u] = false;
+      for (const ei of graph[u]) {
+        const e = edges[ei];
+        if (e.cap <= 0) continue;
+        if (dist[u] + e.cost < dist[e.to]) {
+          dist[e.to] = dist[u] + e.cost;
+          prevEdge[e.to] = ei;
+          if (!inQueue[e.to]) {
+            inQueue[e.to] = true;
+            queue.push(e.to);
+          }
+        }
+      }
+    }
+    return dist[T] < Infinity ? { prevEdge, distT: dist[T] } : null;
+  };
+
+  let totalCost = 0;
+  for (let flow = 0; flow < 2; flow++) {
+    const aug = spfa();
+    if (!aug) return null; // 无法找到两单位节点不重复路径
+    totalCost += aug.distT;
+    let v = T;
+    while (v !== S) {
+      const ei = aug.prevEdge[v];
+      const e = edges[ei];
+      e.cap -= 1;
+      edges[e.rev].cap += 1;
+      v = edges[e.rev].to;
+    }
+  }
+
+  // ---- 流分解：从 S 沿「承载流量」的前向边走两次，还原两条 from→to 路径 ----
+  // 前向边 e 的当前流量 = edges[e.rev].cap（初始反向 cap 为 0，按单位增减）。
+  const walkPath = (): TileId[] => {
+    const path: TileId[] = [];
+    // S → in(from)
+    let u = -1;
+    for (const ei of graph[S]) {
+      const e = edges[ei];
+      if (e.fwd && edges[e.rev].cap > 0) {
+        edges[e.rev].cap -= 1;
+        e.cap += 1;
+        u = e.to;
+        break;
+      }
+    }
+    let guard = 0;
+    while (guard++ < 2000) {
+      const tile = tileOfIn.get(u);
+      if (tile !== undefined) {
+        // in 节点：消耗 in→out 节点边
+        path.push(tile);
+        let advanced = false;
+        for (const ei of graph[u]) {
+          const e = edges[ei];
+          if (e.fwd && e.to === outOf.get(tile) && edges[e.rev].cap > 0) {
+            edges[e.rev].cap -= 1;
+            e.cap += 1;
+            u = e.to;
+            advanced = true;
+            break;
+          }
+        }
+        if (!advanced) throw new Error('minCostRoundTrip 流分解失败（in 节点）');
+      } else {
+        // out 节点：沿邻接前向边走；到达 to 的 out 节点时走向 T 结束
+        if (u === outOf.get(to)) {
+          for (const ei of graph[u]) {
+            const e = edges[ei];
+            if (e.fwd && e.to === T && edges[e.rev].cap > 0) {
+              edges[e.rev].cap -= 1;
+              e.cap += 1;
+              return path;
+            }
+          }
+          throw new Error('minCostRoundTrip 流分解失败（终边）');
+        }
+        let advanced = false;
+        for (const ei of graph[u]) {
+          const e = edges[ei];
+          if (e.fwd && e.to !== T && edges[e.rev].cap > 0) {
+            edges[e.rev].cap -= 1;
+            e.cap += 1;
+            u = e.to;
+            advanced = true;
+            break;
+          }
+        }
+        if (!advanced) throw new Error('minCostRoundTrip 流分解失败（out 节点）');
+      }
+    }
+    throw new Error('minCostRoundTrip 流分解超限');
+  };
+
+  const pathA = walkPath();
+  const pathB = walkPath();
+  return { pathA, pathB, totalCost };
+}

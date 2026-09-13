@@ -40,11 +40,11 @@ export const gameConfig = {
   /** 市集打工收益 */
   workPay: 500,
 
-  /* ---------- 普通格地形概率（v0.1.2：完全独立随机，与位置/路线无关） ---------- */
+  /* ---------- 普通格地形概率（v0.1.2a：4:3:2:1，完全独立随机，与位置/路线无关） ---------- */
   terrainProbability: {
-    GRASS: 0.45,
+    GRASS: 0.4,
     DESERT: 0.3,
-    VILLAGE: 0.15,
+    VILLAGE: 0.2,
     OASIS: 0.1,
   } as Record<string, number>,
 
@@ -63,10 +63,10 @@ export const gameConfig = {
   sandstormStaminaCost: 1,
   rainstormStaminaCost: 1,
 
-  /* ---------- 遭遇（v0.1.2：按格预生成） ---------- */
+  /* ---------- 遭遇（v0.1.2a：按格预生成，基础概率 35%） ---------- */
   encounter: {
     /** 每个普通格存在遭遇的基础概率 */
-    baseProbability: 0.25,
+    baseProbability: 0.35,
     /** 村庄遭遇中盗贼的比例（其余为繁荣市集） */
     villageThiefRatio: 0.5,
   },
@@ -87,26 +87,15 @@ export const gameConfig = {
     neighborhoodRadius: 1,
   },
 
-  /* ---------- 矿区价值评估（v0.1.2：地图生成时客观计算） ---------- */
+  /* ---------- 矿区价值评估（v0.1.2a：价格基准 = 最短合法往返方案的客观危险程度） ---------- */
   mineValuation: {
-    base: 30,
-    scale: 1.6,
+    base: 10,
+    scale: 2.0,
     clampMin: 80,
     clampMax: 320,
-    /** 距离成本：最短路径每跳 */
-    distanceWeight: 2.0,
-    /** 去程（最低风险路径）地形风险每点 */
-    outboundRiskWeight: 0.8,
-    /** 返程困难度权重（高于去程，核心因素） */
-    returnRiskWeight: 1.0,
-    /** 恶劣天气负载权重（路径格平均恶劣天数） */
-    weatherWeight: 0.25,
-    /** 返程路径稀缺：每少一条备选返程的惩罚 */
-    scarcityPerMissing: 5,
-    /** 返程备选路径基线数量 */
-    minReturnAlternatives: 3,
-    /** 返程路径枚举上限（性能保护） */
-    returnPathCountCap: 30,
+    /** 风险权重化下限（Dijkstra/SSP 权重用正值化风险） */
+    riskFloor: 0.5,
+    riskCeil: 10,
     /** 随机价值扰动（宝石质量/市场行情/矿脉差异） */
     jitterMin: 0.9,
     jitterMax: 1.1,

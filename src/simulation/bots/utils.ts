@@ -2,6 +2,7 @@ import type { EventChoice } from '../../game/types';
 import type { BotDecision, BotRng } from './types';
 import type { FairView } from '../fairView';
 import { bfsPath, dijkstraPath, minReturnDays, returnForbidden, SAFE_WEIGHTS } from '../simGraph';
+import { lowestDurabilityIndex } from '../../game/rules/equipment';
 
 /**
  * 公共策略件：移动规划、采矿决策、购买策略、事件应对（v0.1.2 格子地图版）。
@@ -164,15 +165,16 @@ export type EventPolicyKind = 'default' | 'cheap';
 export function eventChoice(view: FairView, policy: EventPolicyKind): EventChoice | null {
   const ev = view.pendingEvent;
   if (!ev) return null;
+  const tentIdx = view.tents.length > 0 ? lowestDurabilityIndex(view.tents) : undefined;
   switch (ev.kind) {
     case 'SANDSTORM':
       return policy === 'cheap'
         ? { kind: 'SANDSTORM', useTent: false, useCompass: false }
-        : { kind: 'SANDSTORM', useTent: view.tents.length > 0, useCompass: view.compasses > 0 };
+        : { kind: 'SANDSTORM', useTent: view.tents.length > 0, useCompass: view.compasses > 0, tentIndex: tentIdx };
     case 'RAINSTORM':
       return policy === 'cheap'
         ? { kind: 'RAINSTORM', useTent: false }
-        : { kind: 'RAINSTORM', useTent: view.tents.length > 0 };
+        : { kind: 'RAINSTORM', useTent: view.tents.length > 0, tentIndex: tentIdx };
     case 'CARAVAN':
       if (policy !== 'cheap' && view.cash >= 300 && view.tents.length === 0) {
         return { kind: 'CARAVAN', action: 'BUY_TENT' };
@@ -196,8 +198,10 @@ export function eventChoice(view: FairView, policy: EventPolicyKind): EventChoic
 
 export type ForecastPolicy = 'never' | 'heuristic';
 
-/** 购买启发式：早期且无存量时购买储备 */
+/** 购买启发式：早期且无存量时购买储备；必须尊重引擎禁用标志（必败检查等） */
 export function shouldBuyForecastPack(view: FairView): boolean {
+  const info = view.availableActions.find((a) => a.action.type === 'BUY_FORECAST_PACK');
+  if (!info || info.disabled) return false;
   if (view.forecastCharges > 0) return false;
   if (view.daysRemaining < 12) return false;
   return view.stamina <= 4 || plannedRouteHasKnownDesert(view);
@@ -226,9 +230,15 @@ export function currentTileTomorrowSevere(view: FairView): boolean {
 /* 休整                                                                */
 /* ------------------------------------------------------------------ */
 
+/** 修整决策：绿洲有水且允许修整（引擎的 disabled 标志已包含帐篷条件） */
 export function wantsRest(view: FairView): boolean {
   const rest = view.availableActions.find((a) => a.action.type === 'REST');
   return !!rest && !rest.disabled && view.stamina < view.maxStamina;
+}
+
+/** 宿营/修整用帐篷下标（无帐篷返回 undefined） */
+export function botTentIndex(view: FairView): number | undefined {
+  return view.tents.length > 0 ? lowestDurabilityIndex(view.tents) : undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -263,9 +273,9 @@ export function baseBotDecide(view: FairView, cfg: BaseBotConfig, rng: BotRng): 
   // 3. 购买装备（城市/村庄，不耗时间）
   const purchase = plannedPurchase(view, cfg.equipment);
   if (purchase) return { type: 'ACTION', action: purchase.action };
-  // 4. 绿洲休整
+  // 4. 绿洲修整（需帐篷时自动带上选择）
   if (cfg.rest && wantsRest(view)) {
-    return { type: 'ACTION', action: { type: 'REST' } };
+    return { type: 'ACTION', action: { type: 'REST', tentIndex: botTentIndex(view) } };
   }
   // 5. 天气预报（购买/使用）与停留避灾
   if (cfg.forecast === 'heuristic') {
@@ -276,7 +286,10 @@ export function baseBotDecide(view: FairView, cfg: BaseBotConfig, rng: BotRng): 
       return { type: 'ACTION', action: { type: 'USE_FORECAST' } };
     }
     if (cfg.wait && view.stamina <= 2 && currentTileTomorrowSevere(view)) {
-      return { type: 'ACTION', action: { type: 'WAIT' } };
+      const waitInfo = view.availableActions.find((a) => a.action.type === 'WAIT');
+      if (waitInfo && !waitInfo.disabled) {
+        return { type: 'ACTION', action: { type: 'WAIT', tentIndex: botTentIndex(view) } };
+      }
     }
   }
   // 6. 移动

@@ -18,9 +18,10 @@ import { generateWorld } from '../map/generate';
 import { parseTileId, tileIdOf } from '../map/grid';
 import { weatherForDay, weatherNames } from '../rules/weather';
 import { pregeneratedEncounter } from '../rules/encounters';
-import { consumeTentForRainstorm, consumeTentForSandstorm } from '../rules/equipment';
+import { consumeTentCharge, consumeTentForRainstorm } from '../rules/equipment';
 import { isTerrainKnown, revealIntelAround } from '../rules/reveal';
 import { getLegalMoves, hasLegalReturnPath, isNormalTile } from '../rules/movement';
+import { evaluateViability } from '../rules/viability';
 import { computeRouteScore, computeStarRating, starLabel } from '../rules/routeScore';
 import type { GameMap } from '../types';
 
@@ -149,7 +150,7 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
   const [a, b] = map.mines;
   pushLog(state, 'system', `新的随机远征开始。Seed: ${seed}`);
   pushLog(state, 'info', `你从城市出发，携带 ${gameConfig.startCash} 元。地图 ${map.rows}×${map.cols}，在 ${maxDays} 天内抵达矿区并沿新路线返回。`);
-  pushLog(state, 'info', `矿区情报：Mine A (${a.row},${a.col}) 宝石 ${a.gemPrice} 元/kg；Mine B (${b.row},${b.col}) 宝石 ${b.gemPrice} 元/kg。`);
+  pushLog(state, 'info', `矿区情报：Mine A (${a.row},${a.col})、Mine B (${b.row},${b.col})。宝石价格属于最终鉴定结果，成功返城后才会公布。`);
   return state;
 }
 
@@ -213,7 +214,12 @@ export function performMove(state: GameState, toTileId: TileId): GameState {
   if (tile.terrain === 'CITY') {
     s.phase = 'FINISHED';
     s.status = 'VICTORY';
-    pushLog(s, 'good', `第 ${s.daysUsed} 天，你带着宝石回到了城市！准备结算。`);
+    // v0.1.2a：最终鉴定——成功返城后才公布该矿区宝石单价
+    const mine = s.mineEntranceId ? s.map.mines.find((m) => m.tileId === s.mineEntranceId) : undefined;
+    if (mine) s.gemPrice = mine.gemPrice;
+    pushLog(s, 'good', mine
+      ? `第 ${s.daysUsed} 天，你带着宝石回到了城市！鉴定师确认 Mine ${mine.slot} 的宝石单价为 ${mine.gemPrice} 元/kg。`
+      : `第 ${s.daysUsed} 天，你回到了城市！`);
     return s;
   }
 
@@ -263,11 +269,8 @@ function enterMine(s: GameState): void {
   const result = computeRouteScore(s);
   s.routeScore = result.score;
 
-  // 成交价 = 地图生成时客观评估的该矿区收购价
-  const mine = s.map.mines.find((m) => m.tileId === s.position)!;
-  s.gemPrice = mine.gemPrice;
-
-  pushLog(s, 'good', `${mine.slot === 'A' ? 'Mine A' : 'Mine B'} 宝石收购价 ${mine.gemPrice} 元/kg（进矿即锁定）。路线风险评级 ${starLabel(result.stars)}（评分 ${result.score}）——评级仅供统计。`);
+  // v0.1.2a：价格属于最终鉴定结果，进矿不再展示/锁定展示
+  pushLog(s, 'good', `已进入 ${tile.mineSlot === 'A' ? 'Mine A' : 'Mine B'}。宝石单价将在成功返城鉴定后公布。`);
   pushLog(s, 'info', `去程耗时 ${s.daysUsed} 天。从现在起每天可挖 ${gameConfig.gemPerMiningDay}kg 宝石，何时收手由你决定。`);
 }
 
@@ -353,17 +356,37 @@ function resolveArrivalEncounter(s: GameState, tileId: TileId): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* 回合收尾：路线可行性                                                  */
+/* 回合收尾：路线可行性与提前判负                                          */
 /* ------------------------------------------------------------------ */
 
 function checkRouteViability(s: GameState): void {
   if (s.status !== 'ONGOING') return;
   if (s.phase === 'RETURN' && !hasLegalReturnPath(s)) {
-    defeat(s, 'RETURN_ROUTE_SEVERED', '返程路线中断：去程与返程的足迹封死了所有归途，再也回不去城市了。');
+    defeat(s, 'RETURN_ROUTE_SEVERED', '返程路线已被切断：当前已不存在符合"去程与返程不得重复普通格"规则的返城路线。');
     return;
   }
   if (s.phase === 'OUTBOUND' && isNormalTile(s.map, s.position) && getLegalMoves(s).length === 0) {
     defeat(s, 'TRAPPED', '去程路线中断：四周都是你走过的脚印，进退无路。');
+    return;
+  }
+  // v0.1.2a 提前判负：数学上已不可能完成旅程时立即结束，不让玩家玩死局
+  const verdict = evaluateViability(s);
+  if (!verdict.ok) {
+    if (verdict.reason === 'NO_LEGAL_ROUTE') {
+      defeat(
+        s,
+        'NO_LEGAL_ROUTE',
+        s.phase === 'OUTBOUND'
+          ? '远征路线已被切断：以当前足迹，已不存在任何合法抵达矿区并返城的路线。'
+          : '返程路线已被切断：当前已不存在符合"去程与返程不得重复普通格"规则的返城路线。',
+      );
+    } else {
+      defeat(
+        s,
+        'INSUFFICIENT_TIME',
+        '无法按时完成远征：根据当前剩余时间与已经使用的路线，本局已经无法在时限内合法完成旅程。',
+      );
+    }
   }
 }
 
@@ -380,18 +403,25 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
   if (state.status !== 'ONGOING') return [];
   const actions: ActionInfo[] = [];
   const tile = state.map.tiles[state.position];
+  /** 宿营类行为（野外/矿区/绿洲停留与修整）是否需要帐篷 */
+  const needsTentHere =
+    tile.terrain !== 'CITY' && tile.terrain !== 'VILLAGE' ? true : false;
+  const hasTent = state.tents.length > 0;
+  const addWait = () => actions.push(waitActionInfo(state, needsTentHere, hasTent));
 
   if (state.phase === 'MINING') {
     actions.push({
       action: { type: 'MINE' },
       label: `挖矿（+${gameConfig.gemPerMiningDay}kg 宝石）`,
-      hint: '消耗 1 天。矿区安全，无天气与耐力消耗。',
+      hint: '消耗 1 天。矿区安全，无天气与耐力消耗，不消耗帐篷。',
     });
     actions.push({
       action: { type: 'START_RETURN' },
       label: '停止挖矿，开始返程',
       hint: '不消耗时间。返程不能经过去程走过的格子。',
     });
+    // 矿区原地等待 = 野外宿营（需要帐篷）
+    addWait();
   }
 
   if (tile.terrain === 'OASIS' && (state.phase === 'OUTBOUND' || state.phase === 'RETURN')) {
@@ -402,21 +432,27 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     let reason: string | undefined;
     if (drought) {
       disabled = true;
-      reason = '这片绿洲已经干涸';
+      reason = '这片绿洲已经干涸，无法修整';
     } else if (used) {
       disabled = true;
-      reason = '每个绿洲每局只能休整一次';
+      reason = '每个绿洲每局只能有效修整一次';
     } else if (full) {
       disabled = true;
       reason = '耐力已满';
+    } else if (!hasTent) {
+      disabled = true;
+      reason = '修整需要正常宿营：没有帐篷';
     }
     actions.push({
       action: { type: 'REST' },
-      label: '绿洲休整（+1 耐力）',
-      hint: '消耗 1 天。',
+      label: '绿洲修整（+1 耐力）',
+      hint: `消耗 1 天；修整需要宿营：${hasTent ? '需选择一顶帐篷（耐久 -1）' : '需要帐篷'}。`,
       disabled,
       disabledReason: reason,
+      needsTent: true,
     });
+    // 绿洲也允许普通停留（不恢复耐力）
+    addWait();
   }
 
   if (tile.terrain === 'CITY' || tile.terrain === 'VILLAGE') {
@@ -439,16 +475,25 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
       disabled: state.cash < compassPrice,
       disabledReason: state.cash < compassPrice ? '现金不足' : undefined,
     });
+    // 城市/村庄免费等待（安全住宿点，不消耗帐篷）
+    addWait();
   }
 
   // 天气预报包（成本 = 最大天数 -1；获得 3 次，自动使用 1 次）
-  const buyForecastDisabled = state.daysUsed >= state.maxDays;
+  // v0.1.2a：购买前后台检查是否会导致本局必败
+  const wouldDoom =
+    evaluateViability({ ...state, maxDays: state.maxDays - 1 }).ok === false;
+  const buyForecastDisabled = state.daysUsed >= state.maxDays || wouldDoom;
   actions.push({
     action: { type: 'BUY_FORECAST_PACK' },
     label: '购买天气预报包（最大天数 -1）',
-    hint: `获得 ${gameConfig.forecast.chargesPerPack} 次预报并立即使用 1 次（显示明天：当前格+邻域）`,
+    hint: `获得 ${gameConfig.forecast.chargesPerPack} 次预报并立即使用 1 次（显示明天：当前格+邻域）。只预测自然天气，无法预测人为事件。`,
     disabled: buyForecastDisabled,
-    disabledReason: buyForecastDisabled ? '将立即超过最大天数' : undefined,
+    disabledReason: buyForecastDisabled
+      ? state.daysUsed >= state.maxDays
+        ? '将立即超过最大天数'
+        : '此次购买会导致剩余时间不足以完成旅程'
+      : undefined,
   });
   // 手动使用储存的预报
   actions.push({
@@ -459,16 +504,44 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     disabledReason: state.forecastCharges <= 0 ? '没有剩余预报次数' : undefined,
   });
 
-  // 原地停留
-  if (state.phase === 'OUTBOUND' || state.phase === 'RETURN') {
-    actions.push({
-      action: { type: 'WAIT' },
-      label: '原地停留 1 天',
-      hint: '不赚钱不回血。当天的天气仍会正常结算（例如沙尘暴）。',
-    });
+  // 原地停留（仅在尚未提供过 WAIT 的场合补充：野外 OUTBOUND/RETURN）
+  if (
+    (state.phase === 'OUTBOUND' || state.phase === 'RETURN') &&
+    !actions.some((a) => a.action.type === 'WAIT')
+  ) {
+    addWait();
   }
 
   return actions;
+}
+
+/** 构造「原地停留」行动描述：城市/村庄免费；野外/矿区/绿洲需帐篷宿营 */
+function waitActionInfo(_state: GameState, needsTent: boolean, hasTent: boolean): ActionInfo {
+  const camping = needsTent;
+  const disabled = camping && !hasTent;
+  return {
+    action: { type: 'WAIT' },
+    label: camping ? '原地宿营 1 天（帐篷耐久 -1）' : '原地停留 1 天',
+    hint: camping
+      ? hasTent
+        ? '野外宿营：消耗 1 天并选择一顶帐篷（耐久 -1）。当天天气仍会正常结算。'
+        : '野外宿营需要帐篷；没有帐篷不能在野外停留。'
+      : '安全地点：不需要帐篷，不产生收益。每天仍正常消耗时间。',
+    disabled,
+    disabledReason: disabled ? '野外宿营需要帐篷' : undefined,
+    needsTent: camping && hasTent,
+  };
+}
+
+/** 校验宿营帐篷选择，返回合法下标 */
+function assertCampTent(state: GameState, tentIndex: number | undefined, actionName: string): number {
+  if (state.tents.length === 0) {
+    throw new GameError('NO_TENT_CAMP', `${actionName}需要帐篷，而你没有帐篷`);
+  }
+  if (tentIndex === undefined || tentIndex < 0 || tentIndex >= state.tents.length) {
+    throw new GameError('TENT_REQUIRED', `${actionName}必须先选择一顶具体帐篷`);
+  }
+  return tentIndex;
 }
 
 export function performAction(state: GameState, action: GameAction): GameState {
@@ -498,14 +571,17 @@ export function performAction(state: GameState, action: GameAction): GameState {
       return s;
     }
     case 'REST': {
-      if (tile.terrain !== 'OASIS') throw new GameError('NOT_OASIS', '只有绿洲可以休整');
-      if (s.map.drought[s.position]) throw new GameError('OASIS_DRY', '这片绿洲已经干涸');
-      if (s.oasisRestUsed[s.position]) throw new GameError('OASIS_USED', '每个绿洲每局只能休整一次');
+      if (tile.terrain !== 'OASIS') throw new GameError('NOT_OASIS', '只有绿洲可以修整');
+      if (s.map.drought[s.position]) throw new GameError('OASIS_DRY', '这片绿洲已经干涸，无法修整');
+      if (s.oasisRestUsed[s.position]) throw new GameError('OASIS_USED', '每个绿洲每局只能有效修整一次');
       if (s.stamina >= gameConfig.maxStamina) throw new GameError('STAMINA_FULL', '耐力已满');
+      // v0.1.2a：修整需要正常宿营——必须消耗一顶指定帐篷的 1 点耐久
+      const tentIdx = assertCampTent(s, action.tentIndex, '绿洲修整');
       if (!addDays(s, 1)) return s;
+      s.tents = consumeTentCharge(s.tents, tentIdx);
       s.oasisRestUsed[s.position] = true;
       s.stamina = Math.min(gameConfig.maxStamina, s.stamina + 1);
-      pushLog(s, 'good', `在绿洲休整一天，耐力恢复至 ${s.stamina}/${gameConfig.maxStamina}。`);
+      pushLog(s, 'good', `在绿洲修整一天（宿营消耗 1 点帐篷耐久），耐力恢复至 ${s.stamina}/${gameConfig.maxStamina}。`);
       finalizeTurn(s);
       return s;
     }
@@ -536,6 +612,14 @@ export function performAction(state: GameState, action: GameAction): GameState {
       return s; // 购买不消耗时间
     }
     case 'BUY_FORECAST_PACK': {
+      // v0.1.2a：后台必败检查——购买导致本局数学上无法完成时禁止购买
+      const doomed = evaluateViability({ ...s, maxDays: s.maxDays - 1 });
+      if (!doomed.ok) {
+        throw new GameError(
+          'FORECAST_WOULD_DOOM',
+          '无法购买天气预报：此次购买会导致剩余时间不足以完成旅程。',
+        );
+      }
       s.maxDays -= 1;
       s.stats.forecastPacks += 1;
       s.forecastCharges += gameConfig.forecast.chargesPerPack;
@@ -558,12 +642,21 @@ export function performAction(state: GameState, action: GameAction): GameState {
       return s; // 成本已在购买时支付
     }
     case 'WAIT': {
-      if (s.phase !== 'OUTBOUND' && s.phase !== 'RETURN') {
+      if (s.phase !== 'OUTBOUND' && s.phase !== 'RETURN' && s.phase !== 'MINING') {
         throw new GameError('BAD_PHASE', '当前阶段不能原地停留');
       }
-      if (!addDays(s, 1)) return s;
-      pushLog(s, 'info', `第 ${s.daysUsed} 天：原地停留一天，等待时机。天气：${weatherNames[getWeatherForDay(s, s.position, s.daysUsed)]}。`);
-      // 停留日的天气仍正常结算（不触发遭遇、不刷新探索）
+      const terrain = s.map.tiles[s.position].terrain;
+      // v0.1.2a：城市/村庄为安全住宿点（免费）；野外/矿区/绿洲宿营必须消耗帐篷
+      if (terrain !== 'CITY' && terrain !== 'VILLAGE') {
+        const tentIdx = assertCampTent(s, action.tentIndex, '野外宿营');
+        s.tents = consumeTentCharge(s.tents, tentIdx);
+        if (!addDays(s, 1)) return s;
+        pushLog(s, 'info', `第 ${s.daysUsed} 天：原地宿营一天（帐篷耐久 -1，剩 ${s.tents.length} 顶）。天气：${weatherNames[getWeatherForDay(s, s.position, s.daysUsed)]}。`);
+      } else {
+        if (!addDays(s, 1)) return s;
+        pushLog(s, 'info', `第 ${s.daysUsed} 天：在${terrain === 'CITY' ? '城市' : '村庄'}安心停留一天（无需帐篷）。`);
+      }
+      // 停留日的天气仍正常结算（不触发遭遇、不刷新探索、不自动恢复）
       resolveTileWeather(s, s.position, s.daysUsed);
       if (s.status === 'ONGOING' && s.pendingEvents.length === 0) {
         finalizeTurn(s);
@@ -591,18 +684,24 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
   switch (current.kind) {
     case 'SANDSTORM': {
       if (choice.kind !== 'SANDSTORM') throw new GameError('BAD_CHOICE', '选择类型不匹配');
-      const { useTent, useCompass } = choice;
+      const { useTent, useCompass, tentIndex } = choice;
       if (useTent && s.tents.length === 0) throw new GameError('NO_TENT', '没有帐篷');
       if (useCompass && s.compasses === 0) throw new GameError('NO_COMPASS', '没有指南针');
-      applySandstorm(s, useTent, useCompass);
+      if (useTent && (tentIndex === undefined || tentIndex < 0 || tentIndex >= s.tents.length)) {
+        throw new GameError('TENT_REQUIRED', '沙尘暴中使用帐篷必须指明具体哪一顶');
+      }
+      applySandstorm(s, useTent, useCompass, tentIndex);
       break;
     }
     case 'RAINSTORM': {
       if (choice.kind !== 'RAINSTORM') throw new GameError('BAD_CHOICE', '选择类型不匹配');
       if (choice.useTent) {
         if (s.tents.length === 0) throw new GameError('NO_TENT', '没有帐篷');
-        s.tents = consumeTentForRainstorm(s.tents);
-        pushLog(s, 'bad', `你撑起帐篷硬扛暴雨。虽然保住了体力，但帐篷已彻底报废（剩 ${s.tents.length} 顶）。`);
+        if (choice.tentIndex === undefined || choice.tentIndex < 0 || choice.tentIndex >= s.tents.length) {
+          throw new GameError('TENT_REQUIRED', '暴雨中使用帐篷必须指明具体哪一顶');
+        }
+        s.tents = consumeTentForRainstorm(s.tents, choice.tentIndex);
+        pushLog(s, 'bad', `你撑起帐篷硬扛暴雨。虽然保住了体力，但帐篷已被整体淋湿报废（剩 ${s.tents.length} 顶）。`);
       } else {
         pushLog(s, 'bad', `你冒雨赶路：耐力 -${gameConfig.rainstormStaminaCost}。`);
         if (!applyStaminaLoss(s, gameConfig.rainstormStaminaCost)) return s;
@@ -665,9 +764,9 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
   return s;
 }
 
-function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean): void {
+function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean, tentIndex?: number): void {
   if (useTent) {
-    s.tents = consumeTentForSandstorm(s.tents);
+    s.tents = consumeTentCharge(s.tents, tentIndex);
     if (useCompass) {
       s.compasses -= 1;
       pushLog(s, 'info', `你扎起帐篷躲过沙暴，指南针指明方向。帐篷耐久 -1（剩 ${s.tents.length} 顶），指南针 -1（剩 ${s.compasses} 只）。体力无损，继续前行。`);

@@ -33,7 +33,9 @@ export type DefeatReason =
   | 'TIMEOUT' // 超过 maxDays
   | 'STAMINA_EXHAUSTED' // 耐力归零
   | 'RETURN_ROUTE_SEVERED' // 返程不存在合法回城路径（FAILURE_NO_RETURN_PATH）
-  | 'TRAPPED'; // 去程被围死，无任何合法移动
+  | 'TRAPPED' // 去程被围死，无任何合法移动
+  | 'NO_LEGAL_ROUTE' // （提前判负）已不存在任何合法完成路线
+  | 'INSUFFICIENT_TIME'; // （提前判负）剩余时间已无法合法完成旅程
 
 /** 格子 */
 export interface GridTile {
@@ -56,13 +58,12 @@ export interface MineInfo {
   difficultyScore: number;
   /** 风险评级 1~5 */
   estimatedRisk: number;
-  /** 评估明细（开发/调试/仿真用，不向玩家展示完整公式） */
+  /** 评估明细（开发/调试/仿真用，不向玩家展示） */
   detail: {
-    shortestLen: number;
-    outboundRisk: number;
-    returnRisk: number;
-    returnPathCount: number;
-    weatherLoad: number;
+    /** 最短合法往返方案总长度（去程+返程跳数） */
+    roundTripLength: number;
+    /** 该方案的客观风险和（价格基准） */
+    roundTripRisk: number;
     jitter: number;
   };
 }
@@ -105,15 +106,19 @@ export type PendingEvent =
   | { id: string; kind: 'THIEF'; tileId: TileId; stolen: number }
   | { id: string; kind: 'MARKET'; tileId: TileId };
 
-/** 沙尘暴选择 */
+/** 沙尘暴选择（使用帐篷时必须指明具体哪一顶） */
 export interface SandstormChoice {
   useTent: boolean;
   useCompass: boolean;
+  /** useTent 时必填：帐篷下标 */
+  tentIndex?: number;
 }
 
-/** 暴雨选择 */
+/** 暴雨选择（使用帐篷时必须指明具体哪一顶；该帐篷整顶报废） */
 export interface RainstormChoice {
   useTent: boolean;
+  /** useTent 时必填：帐篷下标 */
+  tentIndex?: number;
 }
 
 /** 商队选择 */
@@ -172,6 +177,11 @@ export interface GameAction {
   type: GameActionType;
   /** BUY 时指定物品 */
   item?: 'tent' | 'compass';
+  /**
+   * WAIT / REST 在需要帐篷的地点（野外/矿区/绿洲）必须指明使用哪一顶
+   * （城市/村庄等待无需帐篷，可省略）
+   */
+  tentIndex?: number;
 }
 
 /** 提供给 UI 的行动描述 */
@@ -182,6 +192,8 @@ export interface ActionInfo {
   price?: number;
   disabled?: boolean;
   disabledReason?: string;
+  /** 该行动需要玩家选择具体帐篷（多顶时 UI 展开逐顶选择） */
+  needsTent?: boolean;
 }
 
 /* ------------------------------------------------------------------ */

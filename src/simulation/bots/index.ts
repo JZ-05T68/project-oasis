@@ -1,7 +1,7 @@
 import type { BotRng, BotStrategy } from './types';
 import type { EventChoice } from '../../game/types';
 import type { FairView } from '../fairView';
-import { baseBotDecide, pickFrom, type BaseBotConfig } from './utils';
+import { baseBotDecide, botTentIndex, pickFrom, type BaseBotConfig } from './utils';
 
 /**
  * v0.1.2 策略 Bot（格子地图版，供 Smoke Simulation 使用）。
@@ -15,18 +15,25 @@ import { baseBotDecide, pickFrom, type BaseBotConfig } from './utils';
 function randomEventChoice(view: FairView, rng: BotRng): EventChoice | null {
   const ev = view.pendingEvent;
   if (!ev) return null;
+  const tentIdx = botTentIndex(view);
   switch (ev.kind) {
     case 'SANDSTORM': {
       const opts: EventChoice[] = [{ kind: 'SANDSTORM', useTent: false, useCompass: false }];
       if (view.tents.length > 0 && view.compasses > 0) {
-        opts.push({ kind: 'SANDSTORM', useTent: true, useCompass: true });
+        opts.push({ kind: 'SANDSTORM', useTent: true, useCompass: true, tentIndex: tentIdx });
       }
-      if (view.tents.length > 0) opts.push({ kind: 'SANDSTORM', useTent: true, useCompass: false });
+      if (view.tents.length > 0) {
+        opts.push({ kind: 'SANDSTORM', useTent: true, useCompass: false, tentIndex: tentIdx });
+      }
       if (view.compasses > 0) opts.push({ kind: 'SANDSTORM', useTent: false, useCompass: true });
       return pickFrom(opts, rng);
     }
     case 'RAINSTORM':
-      return { kind: 'RAINSTORM', useTent: view.tents.length > 0 && rng() < 0.5 };
+      return {
+        kind: 'RAINSTORM',
+        useTent: view.tents.length > 0 && rng() < 0.5,
+        tentIndex: tentIdx,
+      };
     case 'CARAVAN':
       return {
         kind: 'CARAVAN',
@@ -55,7 +62,19 @@ export const randomBot: BotStrategy = {
     }
     const actions = view.availableActions.filter((a) => !a.disabled);
     if (actions.length > 0 && rng() < 0.2) {
-      return { type: 'ACTION', action: pickFrom(actions, rng).action };
+      const picked = pickFrom(actions, rng).action;
+      if (picked.type === 'WAIT' || picked.type === 'REST') {
+        if (picked.tentIndex === undefined && view.tents.length === 0 && view.map.tiles[view.position].terrain !== 'CITY' && view.map.tiles[view.position].terrain !== 'VILLAGE') {
+          // 无帐篷不能野外宿营——退回移动
+        } else {
+          return {
+            type: 'ACTION',
+            action: { ...picked, tentIndex: picked.tentIndex ?? botTentIndex(view) },
+          };
+        }
+      } else {
+        return { type: 'ACTION', action: picked };
+      }
     }
     if (view.legalMoves.length === 0) {
       throw new Error('RandomBot 无可行动作');
