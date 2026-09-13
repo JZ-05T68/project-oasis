@@ -1,0 +1,7 @@
+kind,count,per1000,choices,avgDayDelta,avgCashDelta
+FORECAST_OFFER,4028172,28772.66,accept:4.25% decline:95.75%,0.04,0
+RAINSTORM,138574,989.81,tent:true:98.3% tent:false:1.7%,0,0
+THIEF,80993,578.52,GIVE_UP:33.52% CHASE:66.48%,0.66,-100.55
+MARKET,67053,478.95,TAKE_DISCOUNT:98.06% WORK:1.94%,0.02,9.69
+SANDSTORM,61048,436.06,"tent:false,compass:false:21.12% tent:true,compass:false:3.17% tent:false,compass:true:26.32% tent:true,compass:true:49.38%",0.23,0
+CARAVAN,34940,249.57,BUY_TENT:35.29% TAKE_INTEL:64.71%,0,-105.86

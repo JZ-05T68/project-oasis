@@ -80,6 +80,27 @@ computeSettlement(state): SettlementView       // 胜负结算视图
 - 引擎支持注入自定义迷你地图（自定义地图作为 GameState 一部分），用于构造
   「返程路线中断」等现实地图上难以稳定复现的场景。
 
+## 仿真模块（v0.1.1 Balance & Validation）
+
+```
+src/simulation/
+├─ fairView.ts   # FairView：Bot 能看到的「玩家视角」信息（结构性防作弊）
+├─ simGraph.ts   # BFS / Dijkstra / 返程禁行集合等图工具
+├─ runner.ts     # runOne / runBatchSeeds：直接驱动正式 Game Engine
+├─ metrics.ts    # RunResult 与聚合（胜率/EV/分位数/失败/装备/事件/节点热度）
+└─ bots/         # 14 个策略 Bot（Random/ShortestPath/Safe/.../NorthForecast）
+```
+
+要点：
+
+- Bot 只通过引擎合法 Action API 玩游戏；非法决策由引擎抛错（视为框架 Bug）。
+- Bot 只能访问 `FairView`：完整路网拓扑（按规则公开）+ 已知地形（战争迷雾过滤）+
+  自己的足迹/资源/待决事件；**拿不到**天气表、事件 roll 表、RNG 状态、未抵达绿洲的干涸状态。
+- Bot 的随机流由「局 Seed + Bot 名」派生（不消耗游戏 RNG），同 Seed + 同 Bot 完全可复现。
+- `scripts/run-sim.ts` 为 CLI（`npm run sim`），支持 `--runs/--bots/--workers/--seedPrefix/--outputDir`，
+  多进程并行（`node --import tsx scripts/sim-worker.ts` 子进程分片）。
+- 报告输出 CSV + Markdown：reports/<目录>/{bots,failures,mines,events,nodes,edges}.csv + summary.md。
+
 ## UI 结构
 
 ```

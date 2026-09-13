@@ -3,6 +3,24 @@
 所有对本项目的显著变更都会记录在本文件中。
 格式参考 Keep a Changelog，版本号遵循语义化版本。
 
+## [0.1.1] - 2026-09-13 · Balance & Validation
+
+### Changed
+
+- **宝石定价改为按矿区入口固定**：南矿 100 / 中央矿 180 / 北矿 280 元/kg，进入即锁定；
+  移除「路线难度评分 → 动态售价」机制（会产生绕路刷售价的激励）。
+- **市场随机系数默认关闭**（`marketEnabled = false`）：成交价 = 固定收购价；
+  机制保留为未来实验功能。
+- 路线风险评分保留，仅用于结算页风险评级 / 调试 / 仿真分析，UI 明确标注不影响售价。
+
+### Added
+
+- 自动仿真框架：FairView 防作弊视图 + 引擎直调 runner + 指标聚合
+  （胜率 / EV / 资产分位数 / 失败原因 / 时间 / 装备 / 事件价值 / 节点与边热度）。
+- 14 个策略 Bot（含 Random 基线与三组对照：预报 vs 不预报、贪心 vs 保守采矿、三矿对照）。
+- `npm run sim` CLI（多进程并行，支持 --runs / --bots / --workers / --seedPrefix / --outputDir）。
+- Balance 报告与调参日志：docs/BALANCE_REPORT_v0.1.1.md、docs/BALANCE_LOG.md、reports/。
+
 ## [0.1.0] - 2026-09-13
 
 ### Added

@@ -5,6 +5,11 @@
 import { writeFileSync } from 'node:fs';
 import { BOT_BY_NAME } from '../src/simulation/bots';
 import { runBatchSeeds } from '../src/simulation/runner';
+import { gameConfig } from '../src/game/config/gameConfig';
+
+// 价格扫描支持：通过环境变量覆盖矿区固定价（仅 Balance 分析用）
+if (process.env.SWEEP_NORTH) gameConfig.mineBasePrice.NORTH = Number(process.env.SWEEP_NORTH);
+if (process.env.SWEEP_MIDDLE) gameConfig.mineBasePrice.CENTRAL = Number(process.env.SWEEP_MIDDLE);
 
 interface Args {
   bot: string;

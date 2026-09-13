@@ -9,10 +9,10 @@ import { worldMap } from '../src/game/map/worldMap';
 import { calmOverrides, walk } from './helpers';
 
 describe('v0.1.1 固定矿区定价', () => {
-  it('三个矿区入口价格固定：南 100 / 中 180 / 北 280', () => {
+  it('三个矿区入口价格固定：南 100 / 中 160 / 北 240', () => {
     expect(gameConfig.mineBasePrice.SOUTH).toBe(100);
-    expect(gameConfig.mineBasePrice.CENTRAL).toBe(180);
-    expect(gameConfig.mineBasePrice.NORTH).toBe(280);
+    expect(gameConfig.mineBasePrice.CENTRAL).toBe(160);
+    expect(gameConfig.mineBasePrice.NORTH).toBe(240);
     expect(gameConfig.marketEnabled).toBe(false);
   });
 
@@ -22,8 +22,8 @@ describe('v0.1.1 固定矿区定价', () => {
       for (const seed of seeds) {
         const r = runOne(bot, seed);
         if (r.mineId === 'mineS') expect(r.gemPrice).toBe(100);
-        if (r.mineId === 'mineC') expect(r.gemPrice).toBe(180);
-        if (r.mineId === 'mineN') expect(r.gemPrice).toBe(280);
+        if (r.mineId === 'mineC') expect(r.gemPrice).toBe(160);
+        if (r.mineId === 'mineN') expect(r.gemPrice).toBe(240);
       }
     }
   });
@@ -63,7 +63,7 @@ describe('FairView 防作弊', () => {
     expect(view.map.nodes['sv'].terrain).toBeNull(); // 未探索
     expect(view.map.nodes['city'].terrain).toBe('CITY'); // 开局可见
     expect(view.map.nodes['mineN'].terrain).toBe('MINE'); // 开局可见
-    expect(view.map.nodes['mineN'].minePrice).toBe(280); // 公开固定价
+    expect(view.map.nodes['mineN'].minePrice).toBe(240); // 公开固定价
     const after = buildFairView(performMove(state, 'sg1'));
     expect(after.map.nodes['sg1'].terrain).toBe('GRASS'); // 亲自抵达后揭示
     expect(after.map.nodes['sv'].terrain).toBeNull(); // 邻居仍未揭示
@@ -219,8 +219,8 @@ describe('矿区对照 Bot 的受控性', () => {
   it('三个矿区对照 Bot 到达各自的矿区且价格正确（对照实验有效性）', () => {
     const cases: Array<[BotStrategy, string, number]> = [
       [southMineBot, 'mineS', 100],
-      [BOT_BY_NAME['MiddleMineBot'], 'mineC', 180],
-      [northMineBot, 'mineN', 280],
+      [BOT_BY_NAME['MiddleMineBot'], 'mineC', 160],
+      [northMineBot, 'mineN', 240],
     ];
     for (const [bot, mineId, price] of cases) {
       const r = runOne(bot, 'controlled:0');

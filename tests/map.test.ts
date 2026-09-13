@@ -93,13 +93,13 @@ describe('固定地图：矿区定价与路线风险评分', () => {
     }
   });
 
-  it('v0.1.1 固定定价：南矿 100 / 中央矿 180 / 北矿 280 元/kg', () => {
+  it('v0.1.1 固定定价：南矿 100 / 中央矿 160 / 北矿 240 元/kg', () => {
     expect(gameConfig.mineBasePrice.SOUTH).toBe(100);
-    expect(gameConfig.mineBasePrice.CENTRAL).toBe(180);
-    expect(gameConfig.mineBasePrice.NORTH).toBe(280);
+    expect(gameConfig.mineBasePrice.CENTRAL).toBe(160);
+    expect(gameConfig.mineBasePrice.NORTH).toBe(240);
     expect(play('price-s', SOUTH).gemPrice).toBe(100);
-    expect(play('price-c', CENTRAL).gemPrice).toBe(180);
-    expect(play('price-n', NORTH).gemPrice).toBe(280);
+    expect(play('price-c', CENTRAL).gemPrice).toBe(160);
+    expect(play('price-n', NORTH).gemPrice).toBe(240);
   });
 
   it('路线风险评分与售价完全解耦：同一矿区不同路线 → 同价不同分', () => {

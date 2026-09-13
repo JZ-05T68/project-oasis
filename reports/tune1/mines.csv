@@ -1,0 +1,17 @@
+bot,mineId,visits,sharePct
+RandomBot,mineC,1879,18.79
+RandomBot,mineN,1255,12.55
+RandomBot,mineS,2351,23.51
+ShortestPathBot,mineS,10000,100
+SafeBot,mineS,10000,100
+PreparedBot,mineS,10000,100
+CheapBot,mineS,10000,100
+ForecastBot,mineS,10000,100
+NoForecastBot,mineS,10000,100
+GreedyMinerBot,mineS,10000,100
+ConservativeMinerBot,mineS,10000,100
+SouthMineBot,mineS,10000,100
+MiddleMineBot,mineC,10000,100
+NorthMineBot,mineN,10000,100
+NorthForecastBot,mineN,10000,100
+NorthNoForecastBot,mineN,10000,100

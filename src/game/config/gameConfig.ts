@@ -30,9 +30,15 @@ export const gameConfig = {
   workPay: 500,
 
   /* ---------- 天气概率（按地形，未列出者视为晴） ---------- */
+  /**
+   * v0.1.1 平衡调参（BALANCE_LOG #1）：
+   * 基线（晴 0.42/0.28/0.30 沙、0.62/0.19/0.19 草）下 42 天预算过于宽裕，
+   * 北矿胜率 97.4% 与南矿 100% 几乎无差而 EV 高 2.2 倍，装备购买 EV 为负。
+   * 提高恶劣天气频率，让长路线真实消耗装备与耐力（草地仍是「低频但高代价」：约 1/3.6 格触发）。
+   */
   weatherProbability: {
-    DESERT: { SUNNY: 0.42, HEAT: 0.28, SANDSTORM: 0.3 },
-    GRASS: { SUNNY: 0.62, RAINSTORM: 0.19, MUD: 0.19 },
+    DESERT: { SUNNY: 0.32, HEAT: 0.3, SANDSTORM: 0.38 },
+    GRASS: { SUNNY: 0.44, RAINSTORM: 0.28, MUD: 0.28 },
     VILLAGE: { SUNNY: 0.7, CLOUDY: 0.3 },
     OASIS: { SUNNY: 0.7, CLOUDY: 0.3 },
     CITY: { SUNNY: 1 },
@@ -93,8 +99,11 @@ export const gameConfig = {
    * 三个矿区入口的固定收购价（元/kg）。
    * 价格只由玩家首次进入的矿区入口决定，进入即锁定；
    * 与去程地形、路线风险评分、实际受伤、天气、事件、路线长度一概无关。
+   *
+   * v0.1.1 平衡调参（BALANCE_LOG #2）：初始 100/180/280 在两轮 10k 仿真中
+   * 形成北矿支配（EV 为南矿 2.0~2.2 倍而胜率仅差 3~11pp），价格扫描后调整为 100/160/240。
    */
-  mineBasePrice: { SOUTH: 100, CENTRAL: 180, NORTH: 280 } as Record<string, number>,
+  mineBasePrice: { SOUTH: 100, CENTRAL: 160, NORTH: 240 } as Record<string, number>,
   /**
    * 市场随机波动系数（0.95~1.05）。
    * v0.1.1 默认关闭：gemPrice = mineBasePrice。
