@@ -1,40 +1,28 @@
 import {
+  GameError,
+} from '../types';
+import type {
   ActionInfo,
   CreateGameOptions,
   EventChoice,
-  ForecastRow,
+  ForecastCell,
   ForecastView,
   GameAction,
-  GameError,
   GameState,
   LogEntry,
-  NodeId,
-  PendingEvent,
+  TileId,
   WeatherType,
 } from '../types';
 import { gameConfig } from '../config/gameConfig';
-import { hashSeed, nextRandom } from '../random/rng';
-import { generateWeatherTable, weatherForDay, weatherNames } from '../rules/weather';
-import {
-  encounterRollForDay,
-  generateDroughtTable,
-  generateEncounterRollTable,
-  judgeEncounter,
-} from '../rules/encounters';
+import { generateWorld } from '../map/generate';
+import { parseTileId, tileIdOf } from '../map/grid';
+import { weatherForDay, weatherNames } from '../rules/weather';
+import { pregeneratedEncounter } from '../rules/encounters';
 import { consumeTentForRainstorm, consumeTentForSandstorm } from '../rules/equipment';
 import { isTerrainKnown, revealIntelAround } from '../rules/reveal';
-import {
-  getLegalMoves,
-  hasLegalReturnPath,
-  isNormalTile,
-} from '../rules/movement';
-import {
-  computeRouteScore,
-  computeStarRating,
-  starLabel,
-} from '../rules/routeScore';
-import { worldMap } from '../map/worldMap';
-import { GameMap } from '../types';
+import { getLegalMoves, hasLegalReturnPath, isNormalTile } from '../rules/movement';
+import { computeRouteScore, computeStarRating, starLabel } from '../rules/routeScore';
+import type { GameMap } from '../types';
 
 export { computeSettlement } from '../rules/settlement';
 export { starLabel, computeStarRating } from '../rules/routeScore';
@@ -57,19 +45,20 @@ function pushLog(state: GameState, kind: LogEntry['kind'], text: string): void {
   }
 }
 
-function makeEventId(state: GameState, kind: PendingEvent['kind'], nodeId: NodeId | null): string {
-  return `${kind}@${nodeId ?? '-'}#d${state.daysUsed}#${state.pendingEvents.length}`;
+function makeEventId(state: GameState, kind: string, tileId: TileId | null): string {
+  return `${kind}@${tileId ?? '-'}#d${state.daysUsed}#${state.pendingEvents.length}`;
 }
 
-function enqueue(state: GameState, event: PendingEvent): void {
+function enqueue(state: GameState, event: GameState['pendingEvents'][number]): void {
   state.pendingEvents.push(event);
 }
 
-/** 天数推进；超过上限立即判负。返回 false 表示游戏已结束 */
+/** 天数推进；超过当前上限立即判负。返回 false 表示游戏已结束 */
 function addDays(state: GameState, n: number): boolean {
   state.daysUsed += n;
-  if (state.daysUsed > gameConfig.maxDays) {
-    defeat(state, 'TIMEOUT', `第 ${state.daysUsed} 天：超过 ${gameConfig.maxDays} 天期限，商队永远迷失在了荒野之中。`);
+  state.lastForecast = null; // 预报锚定“明天”，天数推进后失效
+  if (state.daysUsed > state.maxDays) {
+    defeat(state, 'TIMEOUT', `第 ${state.daysUsed} 天：超过最大旅程天数 ${state.maxDays}，商队永远迷失在了荒野之中。`);
     return false;
   }
   return true;
@@ -113,27 +102,19 @@ function assertFreeToAct(state: GameState): void {
 
 export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameState {
   if (!seed) throw new GameError('BAD_SEED', 'Seed 不能为空');
-  const map: GameMap = opts.map ?? worldMap;
+  const map: GameMap = generateWorld(seed);
 
-  // 开局一次性预生成：天气表 → 遭遇表 → 绿洲干涸（顺序固定保证可复现）
-  let rngState = hashSeed(seed);
-  const weatherGen = generateWeatherTable(map, rngState);
-  rngState = weatherGen.rngState;
-  const encGen = generateEncounterRollTable(map, rngState);
-  rngState = encGen.rngState;
-  const droughtGen = generateDroughtTable(map, rngState);
-  rngState = droughtGen.rngState;
-
-  // 测试/调试注入覆盖
-  const weather = { ...weatherGen.weather, ...(opts.weather ?? {}) };
-  const encounterRolls = { ...encGen.rolls, ...(opts.encounters ?? {}) };
-  const oasisDrought = { ...droughtGen.drought, ...(opts.drought ?? {}) };
+  const weather = { ...map.weather, ...(opts.weather ?? {}) };
+  const encounters = { ...map.encounters, ...(opts.encounters ?? {}) };
+  const drought = { ...map.drought, ...(opts.drought ?? {}) };
+  const maxDays = opts.maxDays ?? gameConfig.maxDays;
 
   const state: GameState = {
     seed,
-    rngState,
+    rngState: 0,
     map,
     daysUsed: 0,
+    maxDays,
     phase: 'OUTBOUND',
     status: 'ONGOING',
     defeatReason: null,
@@ -143,29 +124,32 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
     tents: [],
     compasses: 0,
     equipmentSpent: 0,
+    forecastCharges: 0,
     position: map.cityId,
     mineEntranceId: null,
-    routeScore: null,
-    baseGemPrice: null,
-    marketFactor: null,
     gemPrice: null,
+    routeScore: null,
     visitedOutbound: [map.cityId],
     visitedReturn: [],
-    explored: [map.cityId, ...map.mineIds],
+    explored: [map.cityId, ...map.mines.map((m) => m.tileId)],
     intelKnown: [],
+    triggeredEncounters: [],
     oasisRestUsed: {},
-    oasisDrought,
-    weather,
-    encounterRolls,
     pendingEvents: [],
     lastForecast: null,
     visitDiscount: false,
-    turnFlags: { penaltyDay: false, forecastDay: false },
-    stats: { forecastCount: 0, outboundDays: null, miningDays: 0, returnStartDay: null },
+    stats: { forecastPacks: 0, outboundDays: null, miningDays: 0, returnStartDay: null },
     log: [],
   };
-  pushLog(state, 'system', `新的旅程开始。Seed: ${seed}`);
-  pushLog(state, 'info', `你从城市出发，携带 ${gameConfig.startCash} 元。在 ${gameConfig.maxDays} 天内抵达宝库并沿新路线返回。`);
+  // 覆盖表写回（保持 opts 引用不被污染）
+  state.map.weather = weather;
+  state.map.encounters = encounters;
+  state.map.drought = drought;
+
+  const [a, b] = map.mines;
+  pushLog(state, 'system', `新的随机远征开始。Seed: ${seed}`);
+  pushLog(state, 'info', `你从城市出发，携带 ${gameConfig.startCash} 元。地图 ${map.rows}×${map.cols}，在 ${maxDays} 天内抵达矿区并沿新路线返回。`);
+  pushLog(state, 'info', `矿区情报：Mine A (${a.row},${a.col}) 宝石 ${a.gemPrice} 元/kg；Mine B (${b.row},${b.col}) 宝石 ${b.gemPrice} 元/kg。`);
   return state;
 }
 
@@ -173,84 +157,79 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
 /* 查询                                                                */
 /* ------------------------------------------------------------------ */
 
-export function getWeatherForDay(state: GameState, nodeId: NodeId, day: number): WeatherType {
-  return weatherForDay(state.weather, nodeId, day);
+export function getWeatherForDay(state: GameState, tileId: TileId, day: number): WeatherType {
+  return weatherForDay(state.map.weather, tileId, day);
 }
 
 export function getCurrentWeather(state: GameState): WeatherType {
   return getWeatherForDay(state, state.position, state.daysUsed);
 }
 
-export function getTerrainName(state: GameState, nodeId: NodeId): string {
-  const node = state.map.nodes[nodeId];
-  if (!node) return '?';
-  if (!isTerrainKnown(state, nodeId)) return '未知';
+export function getTerrainName(state: GameState, tileId: TileId): string {
+  const tile = state.map.tiles[tileId];
+  if (!tile) return '?';
+  if (!isTerrainKnown(state, tileId)) return '未知';
   const names: Record<string, string> = {
     CITY: '城市',
     DESERT: '沙漠',
     GRASS: '草地',
     VILLAGE: '村庄',
     OASIS: '绿洲',
-    MINE: '矿区入口',
+    MINE: '矿区',
   };
-  return names[node.terrain] ?? node.terrain;
+  return names[tile.terrain] ?? tile.terrain;
 }
 
 /* ------------------------------------------------------------------ */
 /* 移动                                                                */
 /* ------------------------------------------------------------------ */
 
-export function performMove(state: GameState, toNodeId: NodeId): GameState {
+export function performMove(state: GameState, toTileId: TileId): GameState {
   assertFreeToAct(state);
   if (state.phase !== 'OUTBOUND' && state.phase !== 'RETURN') {
     throw new GameError('PHASE_NO_MOVE', '当前阶段不能移动');
   }
-  const legal = getLegalMoves(state);
-  if (!legal.includes(toNodeId)) {
-    throw new GameError('ILLEGAL_MOVE', `不允许移动到 ${toNodeId}`);
+  if (!getLegalMoves(state).includes(toTileId)) {
+    throw new GameError('ILLEGAL_MOVE', `不允许移动到 ${toTileId}`);
   }
 
   const s = clone(state);
-  s.turnFlags = { penaltyDay: false, forecastDay: false };
   s.lastForecast = null;
   s.visitDiscount = false; // 离开村庄，市集折扣失效
 
   if (!addDays(s, 1)) return s; // 超时判负
 
-  const node = s.map.nodes[toNodeId];
-  s.position = toNodeId;
-  if (!s.explored.includes(toNodeId)) s.explored.push(toNodeId);
+  const tile = s.map.tiles[toTileId];
+  s.position = toTileId;
+  if (!s.explored.includes(toTileId)) s.explored.push(toTileId);
   if (s.phase === 'OUTBOUND') {
-    s.visitedOutbound.push(toNodeId);
+    s.visitedOutbound.push(toTileId);
   } else {
-    s.visitedReturn.push(toNodeId);
+    s.visitedReturn.push(toTileId);
   }
-  pushLog(s, 'info', `第 ${s.daysUsed} 天：抵达「${node.name}」${terrainBadge(node.terrain)}，天气：${weatherNames[getWeatherForDay(s, toNodeId, s.daysUsed)]}。`);
+  pushLog(s, 'info', `第 ${s.daysUsed} 天：抵达 (${tile.row},${tile.col}) ${terrainBadge(tile.terrain)}，天气：${weatherNames[getWeatherForDay(s, toTileId, s.daysUsed)]}。`);
 
   // 回城 = 胜利（仅可能发生在返程；天气不再结算）
-  if (node.terrain === 'CITY') {
+  if (tile.terrain === 'CITY') {
     s.phase = 'FINISHED';
     s.status = 'VICTORY';
     pushLog(s, 'good', `第 ${s.daysUsed} 天，你带着宝石回到了城市！准备结算。`);
     return s;
   }
 
-  // 进入矿区入口 = 进入采矿阶段（宝库无天气无遭遇）
-  if (node.terrain === 'MINE' && s.phase === 'OUTBOUND') {
+  // 进入矿区 = 进入采矿阶段（矿区无天气无遭遇）
+  if (tile.terrain === 'MINE' && s.phase === 'OUTBOUND') {
     enterMine(s);
-    if (s.status === 'ONGOING' && s.pendingEvents.length === 0) {
-      finalizeTurn(s); // 进矿当天也是正常行动日，同样触发 20:00 询问
-    }
+    if (s.status === 'ONGOING') finalizeTurn(s);
     return s;
   }
 
   // 普通格：先天气后遭遇
-  resolveArrivalWeather(s, node.id, s.daysUsed);
+  resolveTileWeather(s, toTileId, s.daysUsed);
   if (s.status === 'ONGOING') {
-    resolveArrivalEncounter(s, node.id, s.daysUsed);
+    resolveArrivalEncounter(s, toTileId);
   }
   if (s.status === 'ONGOING' && s.pendingEvents.length === 0) {
-    // 无未决事件时立即收尾；否则由最后一个事件的处理负责收尾
     finalizeTurn(s);
   }
   return s;
@@ -262,63 +241,48 @@ function terrainBadge(terrain: string): string {
     GRASS: '【草地】',
     VILLAGE: '【村庄】',
     OASIS: '【绿洲】',
-    MINE: '【矿区入口】',
+    MINE: '【矿区】',
     CITY: '【城市】',
   };
   return badges[terrain] ?? '';
 }
 
 function enterMine(s: GameState): void {
-  const mineId = s.position;
-  const node = s.map.nodes[mineId];
+  const tile = s.map.tiles[s.position];
   s.phase = 'MINING';
-  s.mineEntranceId = mineId;
+  s.mineEntranceId = s.position;
   s.stats.outboundDays = s.daysUsed;
-  pushLog(s, 'event', `你抵达「${node.name}」，路线风险评定中……`);
+  pushLog(s, 'event', `你抵达「${tile.mineSlot === 'A' ? 'Mine A' : 'Mine B'}」(${tile.row},${tile.col})，路线风险评定中……`);
 
   if (!hasLegalReturnPath(s)) {
-    defeat(s, 'RETURN_ROUTE_SEVERED', '你的去程封死了所有归途——没有任何合法返城路线。宝库就在眼前，但一切都结束了。');
+    defeat(s, 'RETURN_ROUTE_SEVERED', '你的去程封死了所有归途——没有任何合法返城路线。矿脉就在眼前，但一切都结束了。');
     return;
   }
 
-  // 路线风险评分：仅用于统计与展示，不影响售价
+  // 路线风险评分：仅统计展示
   const result = computeRouteScore(s);
   s.routeScore = result.score;
 
-  // v0.1.1：宝石单价由矿区入口固定，进入即锁定
-  const base = node.mineSlot
-    ? gameConfig.mineBasePrice[node.mineSlot]
-    : gameConfig.mineBasePrice.SOUTH;
-  s.baseGemPrice = base;
-  if (gameConfig.marketEnabled) {
-    const [roll, rngState] = nextRandom(s.rngState);
-    s.rngState = rngState;
-    s.marketFactor =
-      Math.round(
-        (gameConfig.marketFactorMin + roll * (gameConfig.marketFactorMax - gameConfig.marketFactorMin)) * 100,
-      ) / 100;
-  } else {
-    s.marketFactor = 1;
-  }
-  s.gemPrice = Math.round(s.baseGemPrice * s.marketFactor);
+  // 成交价 = 地图生成时客观评估的该矿区收购价
+  const mine = s.map.mines.find((m) => m.tileId === s.position)!;
+  s.gemPrice = mine.gemPrice;
 
-  const slotName = node.mineSlot === 'NORTH' ? '北矿区' : node.mineSlot === 'CENTRAL' ? '中央矿区' : '南矿区';
-  pushLog(s, 'good', `${slotName}宝石收购价 ${s.baseGemPrice} 元/kg（进入即锁定，固定不变）。路线风险评级 ${starLabel(result.stars)}（评分 ${result.score}）——评级仅供统计，不影响售价。`);
+  pushLog(s, 'good', `${mine.slot === 'A' ? 'Mine A' : 'Mine B'} 宝石收购价 ${mine.gemPrice} 元/kg（进矿即锁定）。路线风险评级 ${starLabel(result.stars)}（评分 ${result.score}）——评级仅供统计。`);
   pushLog(s, 'info', `去程耗时 ${s.daysUsed} 天。从现在起每天可挖 ${gameConfig.gemPerMiningDay}kg 宝石，何时收手由你决定。`);
 }
 
 /* ------------------------------------------------------------------ */
-/* 到达结算：天气 / 遭遇                                                 */
+/* 天气 / 遭遇结算（到达或停留的当天）                                     */
 /* ------------------------------------------------------------------ */
 
-function resolveArrivalWeather(s: GameState, nodeId: NodeId, day: number): void {
-  const w = getWeatherForDay(s, nodeId, day);
-  const terrain = s.map.nodes[nodeId].terrain;
+function resolveTileWeather(s: GameState, tileId: TileId, day: number): void {
+  const w = getWeatherForDay(s, tileId, day);
+  const terrain = s.map.tiles[tileId].terrain;
 
   if (terrain === 'DESERT') {
     if (w === 'SANDSTORM') {
       pushLog(s, 'bad', '沙尘暴骤起，天地一片昏黄！');
-      enqueue(s, { id: makeEventId(s, 'SANDSTORM', nodeId), kind: 'SANDSTORM', nodeId });
+      enqueue(s, { id: makeEventId(s, 'SANDSTORM', tileId), kind: 'SANDSTORM', tileId });
     } else if (w === 'HEAT') {
       pushLog(s, 'bad', `烈日炙烤（高温）：耐力 -${gameConfig.heatStaminaCost}。`);
       applyStaminaLoss(s, gameConfig.heatStaminaCost);
@@ -329,20 +293,19 @@ function resolveArrivalWeather(s: GameState, nodeId: NodeId, day: number): void 
     if (w === 'RAINSTORM') {
       if (s.tents.length > 0) {
         pushLog(s, 'bad', '草原暴雨倾盆而下！');
-        enqueue(s, { id: makeEventId(s, 'RAINSTORM', nodeId), kind: 'RAINSTORM', nodeId });
+        enqueue(s, { id: makeEventId(s, 'RAINSTORM', tileId), kind: 'RAINSTORM', tileId });
       } else {
         pushLog(s, 'bad', `暴雨倾盆而你无帐可依：耐力 -${gameConfig.rainstormStaminaCost}。`);
         applyStaminaLoss(s, gameConfig.rainstormStaminaCost);
       }
     } else if (w === 'MUD') {
       pushLog(s, 'bad', '陷入泥沼，挣扎出来白白耗掉了一整天。');
-      s.turnFlags.penaltyDay = true;
       addDays(s, 1);
     }
     return;
   }
   if (terrain === 'OASIS') {
-    if (s.oasisDrought[nodeId]) {
+    if (s.map.drought[tileId]) {
       pushLog(s, 'bad', '这里的绿洲已经干涸，只剩龟裂的泥地。');
     } else {
       pushLog(s, 'good', '清冽的绿洲——在此休整一天可以恢复 1 点耐力。');
@@ -350,31 +313,34 @@ function resolveArrivalWeather(s: GameState, nodeId: NodeId, day: number): void 
   }
 }
 
-function resolveArrivalEncounter(s: GameState, nodeId: NodeId, day: number): void {
+function resolveArrivalEncounter(s: GameState, tileId: TileId): void {
   if (s.status !== 'ONGOING') return;
-  const terrain = s.map.nodes[nodeId].terrain;
-  const roll = encounterRollForDay(s.encounterRolls, nodeId, day);
-  const { kind } = judgeEncounter(terrain, roll);
+  const kind = pregeneratedEncounter(s.map, tileId);
+  if (!kind || s.triggeredEncounters.includes(tileId)) return; // 每格每局最多一次
+  s.triggeredEncounters.push(tileId);
 
   switch (kind) {
     case 'CARAVAN':
       pushLog(s, 'event', '一支商队从沙雾中走来，招呼你做笔买卖。');
-      enqueue(s, { id: makeEventId(s, 'CARAVAN', nodeId), kind: 'CARAVAN', nodeId });
+      enqueue(s, { id: makeEventId(s, 'CARAVAN', tileId), kind: 'CARAVAN', tileId });
       break;
     case 'THIEF': {
       const stolen = Math.min(gameConfig.thiefStealMax, s.cash);
       pushLog(s, 'bad', `盗贼夜袭！被抢走 ${stolen} 元。你可以追回，但要花上一整天。`);
-      enqueue(s, { id: makeEventId(s, 'THIEF', nodeId), kind: 'THIEF', nodeId, stolen });
+      enqueue(s, { id: makeEventId(s, 'THIEF', tileId), kind: 'THIEF', tileId, stolen });
       break;
     }
     case 'MARKET':
       pushLog(s, 'event', '村里正逢繁荣市集，货物齐全、价格公道。');
-      enqueue(s, { id: makeEventId(s, 'MARKET', nodeId), kind: 'MARKET', nodeId });
+      enqueue(s, { id: makeEventId(s, 'MARKET', tileId), kind: 'MARKET', tileId });
       break;
     case 'HERDSMAN': {
-      const revealed = revealIntelAround(s, nodeId);
+      const revealed = revealIntelAround(s, tileId);
       if (revealed.length > 0) {
-        const names = revealed.map((id) => `「${s.map.nodes[id].name}」${terrainBadge(s.map.nodes[id].terrain)}`);
+        const names = revealed.map((id) => {
+          const t = s.map.tiles[id];
+          return `(${t.row},${t.col})${terrainBadge(t.terrain)}`;
+        });
         pushLog(s, 'good', `路遇牧民，热心指点了周边地形：${names.join('、')}。`);
       } else {
         pushLog(s, 'info', '路遇牧民，但周边地形你都已了然。');
@@ -387,7 +353,7 @@ function resolveArrivalEncounter(s: GameState, nodeId: NodeId, day: number): voi
 }
 
 /* ------------------------------------------------------------------ */
-/* 回合收尾：路线可行性 + 20:00 天气预报询问                              */
+/* 回合收尾：路线可行性                                                  */
 /* ------------------------------------------------------------------ */
 
 function checkRouteViability(s: GameState): void {
@@ -396,8 +362,7 @@ function checkRouteViability(s: GameState): void {
     defeat(s, 'RETURN_ROUTE_SEVERED', '返程路线中断：去程与返程的足迹封死了所有归途，再也回不去城市了。');
     return;
   }
-  if (s.phase === 'OUTBOUND' && !isNormalTile(s, s.position)) return;
-  if (s.phase === 'OUTBOUND' && getLegalMoves(s).length === 0) {
+  if (s.phase === 'OUTBOUND' && isNormalTile(s.map, s.position) && getLegalMoves(s).length === 0) {
     defeat(s, 'TRAPPED', '去程路线中断：四周都是你走过的脚印，进退无路。');
   }
 }
@@ -405,12 +370,6 @@ function checkRouteViability(s: GameState): void {
 function finalizeTurn(s: GameState): void {
   if (s.status !== 'ONGOING') return;
   checkRouteViability(s);
-  if (s.status !== 'ONGOING') return;
-  // 惩罚日与天气预报日不触发 20:00 询问（避免递归）
-  if (s.turnFlags.penaltyDay || s.turnFlags.forecastDay) return;
-  // 已经用到第 42 天：预报会把天数推到 43，必然失败，不再询问
-  if (s.daysUsed >= gameConfig.maxDays) return;
-  enqueue(s, { id: makeEventId(s, 'FORECAST_OFFER', null), kind: 'FORECAST_OFFER' });
 }
 
 /* ------------------------------------------------------------------ */
@@ -420,23 +379,23 @@ function finalizeTurn(s: GameState): void {
 export function getAvailableActions(state: GameState): ActionInfo[] {
   if (state.status !== 'ONGOING') return [];
   const actions: ActionInfo[] = [];
-  const node = state.map.nodes[state.position];
+  const tile = state.map.tiles[state.position];
 
   if (state.phase === 'MINING') {
     actions.push({
       action: { type: 'MINE' },
       label: `挖矿（+${gameConfig.gemPerMiningDay}kg 宝石）`,
-      hint: '消耗 1 天。宝库安全，无天气与耐力消耗。',
+      hint: '消耗 1 天。矿区安全，无天气与耐力消耗。',
     });
     actions.push({
       action: { type: 'START_RETURN' },
       label: '停止挖矿，开始返程',
-      hint: '不消耗时间。返程不能经过去程走过的普通格。',
+      hint: '不消耗时间。返程不能经过去程走过的格子。',
     });
   }
 
-  if (node.terrain === 'OASIS' && (state.phase === 'OUTBOUND' || state.phase === 'RETURN')) {
-    const drought = state.oasisDrought[state.position];
+  if (tile.terrain === 'OASIS' && (state.phase === 'OUTBOUND' || state.phase === 'RETURN')) {
+    const drought = state.map.drought[state.position];
     const used = !!state.oasisRestUsed[state.position];
     const full = state.stamina >= gameConfig.maxStamina;
     let disabled = false;
@@ -460,8 +419,8 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     });
   }
 
-  if (node.terrain === 'CITY' || node.terrain === 'VILLAGE') {
-    const discount = state.visitDiscount && node.terrain === 'VILLAGE';
+  if (tile.terrain === 'CITY' || tile.terrain === 'VILLAGE') {
+    const discount = state.visitDiscount && tile.terrain === 'VILLAGE';
     const tentPrice = discount ? gameConfig.marketDiscountTentPrice : gameConfig.tentPrice;
     const compassPrice = discount ? gameConfig.marketDiscountCompassPrice : gameConfig.compassPrice;
     actions.push({
@@ -482,18 +441,44 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     });
   }
 
+  // 天气预报包（成本 = 最大天数 -1；获得 3 次，自动使用 1 次）
+  const buyForecastDisabled = state.daysUsed >= state.maxDays;
+  actions.push({
+    action: { type: 'BUY_FORECAST_PACK' },
+    label: '购买天气预报包（最大天数 -1）',
+    hint: `获得 ${gameConfig.forecast.chargesPerPack} 次预报并立即使用 1 次（显示明天：当前格+邻域）`,
+    disabled: buyForecastDisabled,
+    disabledReason: buyForecastDisabled ? '将立即超过最大天数' : undefined,
+  });
+  // 手动使用储存的预报
+  actions.push({
+    action: { type: 'USE_FORECAST' },
+    label: `使用天气预报（剩余 ${state.forecastCharges} 次）`,
+    hint: '不消耗天数与金钱。显示明天的当前格+邻域天气。',
+    disabled: state.forecastCharges <= 0,
+    disabledReason: state.forecastCharges <= 0 ? '没有剩余预报次数' : undefined,
+  });
+
+  // 原地停留
+  if (state.phase === 'OUTBOUND' || state.phase === 'RETURN') {
+    actions.push({
+      action: { type: 'WAIT' },
+      label: '原地停留 1 天',
+      hint: '不赚钱不回血。当天的天气仍会正常结算（例如沙尘暴）。',
+    });
+  }
+
   return actions;
 }
 
 export function performAction(state: GameState, action: GameAction): GameState {
   assertFreeToAct(state);
   const s = clone(state);
-  const node = s.map.nodes[s.position];
+  const tile = s.map.tiles[s.position];
 
   switch (action.type) {
     case 'MINE': {
       if (s.phase !== 'MINING') throw new GameError('NOT_MINING', '只有在矿区入口才能挖矿');
-      s.turnFlags = { penaltyDay: false, forecastDay: false };
       if (!addDays(s, 1)) return s;
       s.stats.miningDays += 1;
       s.gemsKg += gameConfig.gemPerMiningDay;
@@ -506,18 +491,17 @@ export function performAction(state: GameState, action: GameAction): GameState {
       s.phase = 'RETURN';
       s.stats.returnStartDay = s.daysUsed;
       if (s.mineEntranceId) s.visitedReturn.push(s.mineEntranceId);
-      pushLog(s, 'event', `你背起 ${s.gemsKg}kg 宝石，从「${s.map.nodes[s.mineEntranceId ?? s.position].name}」踏上归途。返程不能重复去程走过的普通格！`);
+      pushLog(s, 'event', `你背起 ${s.gemsKg}kg 宝石，从 Mine ${s.map.tiles[s.mineEntranceId ?? s.position].mineSlot} 踏上归途。返程不能重复去程走过的格子！`);
       if (!hasLegalReturnPath(s)) {
         defeat(s, 'RETURN_ROUTE_SEVERED', '返程路线中断：不存在任何合法回城路线。');
       }
       return s;
     }
     case 'REST': {
-      if (node.terrain !== 'OASIS') throw new GameError('NOT_OASIS', '只有绿洲可以休整');
-      if (s.oasisDrought[s.position]) throw new GameError('OASIS_DRY', '这片绿洲已经干涸');
+      if (tile.terrain !== 'OASIS') throw new GameError('NOT_OASIS', '只有绿洲可以休整');
+      if (s.map.drought[s.position]) throw new GameError('OASIS_DRY', '这片绿洲已经干涸');
       if (s.oasisRestUsed[s.position]) throw new GameError('OASIS_USED', '每个绿洲每局只能休整一次');
       if (s.stamina >= gameConfig.maxStamina) throw new GameError('STAMINA_FULL', '耐力已满');
-      s.turnFlags = { penaltyDay: false, forecastDay: false };
       if (!addDays(s, 1)) return s;
       s.oasisRestUsed[s.position] = true;
       s.stamina = Math.min(gameConfig.maxStamina, s.stamina + 1);
@@ -526,11 +510,11 @@ export function performAction(state: GameState, action: GameAction): GameState {
       return s;
     }
     case 'BUY': {
-      if (node.terrain !== 'CITY' && node.terrain !== 'VILLAGE') {
+      if (tile.terrain !== 'CITY' && tile.terrain !== 'VILLAGE') {
         throw new GameError('NO_SHOP', '只有城市与村庄可以购买装备');
       }
       if (!action.item) throw new GameError('BAD_ACTION', '缺少购买物品');
-      const discount = s.visitDiscount && node.terrain === 'VILLAGE';
+      const discount = s.visitDiscount && tile.terrain === 'VILLAGE';
       const price =
         action.item === 'tent'
           ? discount
@@ -550,6 +534,41 @@ export function performAction(state: GameState, action: GameAction): GameState {
         pushLog(s, 'info', `购买了一只指南针（-${price} 元，${discount ? '市集八折' : '原价'}）。现有 ${s.compasses} 只。`);
       }
       return s; // 购买不消耗时间
+    }
+    case 'BUY_FORECAST_PACK': {
+      s.maxDays -= 1;
+      s.stats.forecastPacks += 1;
+      s.forecastCharges += gameConfig.forecast.chargesPerPack;
+      pushLog(s, 'info', `购买天气预报包（最大旅程天数降至 ${s.maxDays}），获得 ${gameConfig.forecast.chargesPerPack} 次。`);
+      if (s.daysUsed > s.maxDays) {
+        defeat(s, 'TIMEOUT', `最大旅程天数已降至 ${s.maxDays}，而你已经走了 ${s.daysUsed} 天……`);
+        return s;
+      }
+      // 立即自动使用 1 次
+      s.forecastCharges -= 1;
+      s.lastForecast = buildForecastView(s);
+      pushLog(s, 'good', `观测完成：明天（第 ${s.daysUsed + 1} 天）当前格与邻域的天气已记录（剩余 ${s.forecastCharges} 次）。`);
+      return s; // 成本已通过 maxDays 支付，不消耗当天
+    }
+    case 'USE_FORECAST': {
+      if (s.forecastCharges <= 0) throw new GameError('NO_FORECAST', '没有剩余预报次数');
+      s.forecastCharges -= 1;
+      s.lastForecast = buildForecastView(s);
+      pushLog(s, 'good', `观测完成：明天（第 ${s.daysUsed + 1} 天）当前格与邻域的天气已记录（剩余 ${s.forecastCharges} 次）。`);
+      return s; // 成本已在购买时支付
+    }
+    case 'WAIT': {
+      if (s.phase !== 'OUTBOUND' && s.phase !== 'RETURN') {
+        throw new GameError('BAD_PHASE', '当前阶段不能原地停留');
+      }
+      if (!addDays(s, 1)) return s;
+      pushLog(s, 'info', `第 ${s.daysUsed} 天：原地停留一天，等待时机。天气：${weatherNames[getWeatherForDay(s, s.position, s.daysUsed)]}。`);
+      // 停留日的天气仍正常结算（不触发遭遇、不刷新探索）
+      resolveTileWeather(s, s.position, s.daysUsed);
+      if (s.status === 'ONGOING' && s.pendingEvents.length === 0) {
+        finalizeTurn(s);
+      }
+      return s;
     }
     default:
       throw new GameError('BAD_ACTION', '未知行动');
@@ -599,9 +618,12 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
         s.tents.push(gameConfig.caravanTentCharges);
         pushLog(s, 'info', `从商队购入一顶二手帐篷（-${gameConfig.caravanTentPrice} 元）。现有 ${s.tents.length} 顶。`);
       } else {
-        const revealed = revealIntelAround(s, current.nodeId);
+        const revealed = revealIntelAround(s, current.tileId);
         if (revealed.length > 0) {
-          const names = revealed.map((id) => `「${s.map.nodes[id].name}」${terrainBadge(s.map.nodes[id].terrain)}`);
+          const names = revealed.map((id) => {
+            const t = s.map.tiles[id];
+            return `(${t.row},${t.col})${terrainBadge(t.terrain)}`;
+          });
           pushLog(s, 'good', `商队头人摊开地图为你指点周边：${names.join('、')}。`);
         } else {
           pushLog(s, 'info', '商队告诉你：周边的地形你都已经知道了。');
@@ -615,7 +637,6 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
         s.cash -= current.stolen;
         pushLog(s, 'bad', `你放弃了追逐，损失 ${current.stolen} 元。剩余 ${s.cash} 元。`);
       } else {
-        s.turnFlags = { penaltyDay: false, forecastDay: false };
         pushLog(s, 'info', '你追了出去……');
         if (!addDays(s, 1)) return s;
         pushLog(s, 'good', `追回成功！被偷的 ${current.stolen} 元分文不少地回到了口袋（耗时 1 天）。`);
@@ -628,24 +649,9 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
         s.visitDiscount = true;
         pushLog(s, 'good', '你取得了市集商家的信任：本次停留期间帐篷 320 元、指南针 80 元。');
       } else {
-        s.turnFlags = { penaltyDay: false, forecastDay: false };
         if (!addDays(s, 1)) return s;
         s.cash += gameConfig.workPay;
         pushLog(s, 'good', `在市集帮工一整天，赚得 ${gameConfig.workPay} 元（现金 ${s.cash} 元）。`);
-      }
-      break;
-    }
-    case 'FORECAST_OFFER': {
-      if (choice.kind !== 'FORECAST_OFFER') throw new GameError('BAD_CHOICE', '选择类型不匹配');
-      if (choice.accept) {
-        s.turnFlags = { penaltyDay: false, forecastDay: true };
-        if (!addDays(s, 1)) return s;
-        s.stats.forecastCount += 1;
-        s.lastForecast = buildForecastView(s);
-        pushLog(s, 'info', `你花了一整天守在观测点，记下了未来 3 天的天气。`);
-      } else {
-        s.turnFlags = { penaltyDay: false, forecastDay: false };
-        pushLog(s, 'info', '你决定赶路要紧，不去看天气预报。');
       }
       break;
     }
@@ -653,8 +659,7 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
       throw new GameError('BAD_EVENT', '未知事件类型');
   }
 
-  if (s.status === 'ONGOING' && s.pendingEvents.length === 0 && current.kind !== 'FORECAST_OFFER') {
-    // 天气预报询问本身就是回合收尾的一部分：无论接受与否都不再重复询问
+  if (s.status === 'ONGOING' && s.pendingEvents.length === 0) {
     finalizeTurn(s);
   }
   return s;
@@ -668,7 +673,6 @@ function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean): vo
       pushLog(s, 'info', `你扎起帐篷躲过沙暴，指南针指明方向。帐篷耐久 -1（剩 ${s.tents.length} 顶），指南针 -1（剩 ${s.compasses} 只）。体力无损，继续前行。`);
     } else {
       pushLog(s, 'bad', `帐篷挡住了风沙（耐久 -1，剩 ${s.tents.length} 顶），但在昏黄的风中迷失了方向：额外损失 1 天。`);
-      s.turnFlags.penaltyDay = true;
       addDays(s, 1);
     }
   } else {
@@ -678,7 +682,6 @@ function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean): vo
       applyStaminaLoss(s, gameConfig.sandstormStaminaCost);
     } else {
       pushLog(s, 'bad', `无帐无针，你在沙暴中狼狈挣扎：耐力 -${gameConfig.sandstormStaminaCost}，且迷失方向：额外损失 1 天。`);
-      s.turnFlags.penaltyDay = true;
       if (!applyStaminaLoss(s, gameConfig.sandstormStaminaCost)) return;
       addDays(s, 1);
     }
@@ -686,37 +689,33 @@ function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean): vo
 }
 
 /* ------------------------------------------------------------------ */
-/* 天气预报视图                                                         */
+/* 天气预报视图（单日：当前格 + 8 邻域）                                  */
 /* ------------------------------------------------------------------ */
 
 export function buildForecastView(s: GameState): ForecastView {
-  const dayNumbers = [s.daysUsed + 1, s.daysUsed + 2, s.daysUsed + 3];
-  const rows: ForecastRow[] = Object.keys(s.map.nodes).map((nodeId) => {
-    const known = isTerrainKnown(s, nodeId);
-    return {
-      nodeId,
-      terrainKnown: known,
-      values: known
-        ? dayNumbers.map((d) => getWeatherForDay(s, nodeId, d))
-        : (['UNKNOWN', 'UNKNOWN', 'UNKNOWN'] as Array<WeatherType | 'UNKNOWN'>),
-    };
-  });
-  return { dayNumbers, rows };
+  const day = s.daysUsed + 1;
+  const { row, col } = parseTileId(s.position);
+  const radius = gameConfig.forecast.neighborhoodRadius;
+  const cells: ForecastCell[] = [];
+  for (let r = row - radius; r <= row + radius; r++) {
+    for (let c = col - radius; c <= col + radius; c++) {
+      if (r < 0 || r >= s.map.rows || c < 0 || c >= s.map.cols) continue;
+      const id = tileIdOf(r, c);
+      cells.push({
+        tileId: id,
+        row: r,
+        col: c,
+        isCurrent: id === s.position,
+        terrainKnown: isTerrainKnown(s, id),
+        weather: getWeatherForDay(s, id, day),
+      });
+    }
+  }
+  return { day, cells };
 }
 
-/** 路线风险评分的展示信息（不影响售价） */
+/** 路线风险评分的展示信息 */
 export function getRouteSummary(state: GameState): string | null {
   if (state.routeScore === null) return null;
   return `路线风险评分 ${state.routeScore}（${starLabel(computeStarRating(state.routeScore))}）`;
-}
-
-/* ------------------------------------------------------------------ */
-/* rng 直接访问（测试/调试）                                            */
-/* ------------------------------------------------------------------ */
-
-export function drawRandom(state: GameState): [number, GameState] {
-  const s = clone(state);
-  const [value, rngState] = nextRandom(s.rngState);
-  s.rngState = rngState;
-  return [value, s];
 }

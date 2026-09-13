@@ -1,9 +1,11 @@
 /**
- * Project Oasis 核心类型定义。
- * 该文件是引擎的事实契约：engine / rules / UI 全部依赖这里。
+ * Project Oasis 核心类型定义（v0.1.2 Random Expedition）。
+ * 地图为 m×n 二维格子；城市固定左下角；两个矿区固定在最右列。
  */
 
-export type NodeId = string;
+export type TileId = string; // 格式 `${row}:${col}`
+
+export type MineSlot = 'A' | 'B';
 
 /** 地形类型 */
 export type TerrainType = 'CITY' | 'DESERT' | 'GRASS' | 'VILLAGE' | 'OASIS' | 'MINE';
@@ -17,6 +19,9 @@ export type WeatherType =
   | 'RAINSTORM'
   | 'MUD';
 
+/** 遭遇种类（开局按 Seed 预生成到每个普通格） */
+export type EncounterKind = 'CARAVAN' | 'THIEF' | 'MARKET' | 'HERDSMAN';
+
 /** 阶段 */
 export type Phase = 'OUTBOUND' | 'MINING' | 'RETURN' | 'FINISHED';
 
@@ -25,35 +30,60 @@ export type GameStatus = 'ONGOING' | 'VICTORY' | 'DEFEAT';
 
 /** 失败原因 */
 export type DefeatReason =
-  | 'TIMEOUT' // 超过 42 天
+  | 'TIMEOUT' // 超过 maxDays
   | 'STAMINA_EXHAUSTED' // 耐力归零
-  | 'RETURN_ROUTE_SEVERED' // 返程不存在合法回城路径（含矿区入口被封）
+  | 'RETURN_ROUTE_SEVERED' // 返程不存在合法回城路径（FAILURE_NO_RETURN_PATH）
   | 'TRAPPED'; // 去程被围死，无任何合法移动
 
-/** 矿区风险档位（决定固定宝石收购价） */
-export type MineSlot = 'SOUTH' | 'CENTRAL' | 'NORTH';
-
-/** 地图节点 */
-export interface MapNode {
-  id: NodeId;
-  name: string;
+/** 格子 */
+export interface GridTile {
+  id: TileId;
+  row: number;
+  col: number;
   terrain: TerrainType;
-  /** 渲染坐标（抽象网格，仅供 UI/SVG 使用） */
-  x: number;
-  y: number;
-  /** 仅 MINE 节点：所属矿区档位，映射 gameConfig.mineBasePrice */
+  /** 仅矿区格：矿区档位 */
   mineSlot?: MineSlot;
 }
 
-export type Edge = [NodeId, NodeId];
+/** 矿区信息（地图生成时客观评估，与玩家行为无关） */
+export interface MineInfo {
+  slot: MineSlot;
+  tileId: TileId;
+  row: number;
+  col: number;
+  /** 固定收购价（本局，进入即锁定到该矿区） */
+  gemPrice: number;
+  difficultyScore: number;
+  /** 风险评级 1~5 */
+  estimatedRisk: number;
+  /** 评估明细（开发/调试/仿真用，不向玩家展示完整公式） */
+  detail: {
+    shortestLen: number;
+    outboundRisk: number;
+    returnRisk: number;
+    returnPathCount: number;
+    weatherLoad: number;
+    jitter: number;
+  };
+}
 
-/** 地图（固定地图或测试用迷你地图） */
+/**
+ * 二维格子地图（含预生成的天气/遭遇/绿洲状态/矿区价值）。
+ * 同一 Seed 必然生成完全相同的地图。
+ */
 export interface GameMap {
-  nodes: Record<NodeId, MapNode>;
-  edges: Edge[];
-  adjacency: Record<NodeId, NodeId[]>;
-  cityId: NodeId;
-  mineIds: NodeId[];
+  rows: number;
+  cols: number;
+  cityId: TileId;
+  tiles: Record<TileId, GridTile>;
+  /** 两个矿区（slot A / B） */
+  mines: MineInfo[];
+  /** 每格预生成天气：weather[tileId][day-1] */
+  weather: Record<TileId, WeatherType[]>;
+  /** 每个普通格预生成的遭遇（null = 无）；城市/矿区不含 */
+  encounters: Record<TileId, EncounterKind | null>;
+  /** 绿洲干涸状态（仅绿洲格） */
+  drought: Record<TileId, boolean>;
 }
 
 /** 日志条目 */
@@ -69,12 +99,11 @@ export interface LogEntry {
 
 /** 待玩家决断的事件队列元素 */
 export type PendingEvent =
-  | { id: string; kind: 'SANDSTORM'; nodeId: NodeId }
-  | { id: string; kind: 'RAINSTORM'; nodeId: NodeId }
-  | { id: string; kind: 'CARAVAN'; nodeId: NodeId }
-  | { id: string; kind: 'THIEF'; nodeId: NodeId; stolen: number }
-  | { id: string; kind: 'MARKET'; nodeId: NodeId }
-  | { id: string; kind: 'FORECAST_OFFER' };
+  | { id: string; kind: 'SANDSTORM'; tileId: TileId }
+  | { id: string; kind: 'RAINSTORM'; tileId: TileId }
+  | { id: string; kind: 'CARAVAN'; tileId: TileId }
+  | { id: string; kind: 'THIEF'; tileId: TileId; stolen: number }
+  | { id: string; kind: 'MARKET'; tileId: TileId };
 
 /** 沙尘暴选择 */
 export interface SandstormChoice {
@@ -96,42 +125,48 @@ export type ThiefChoice = 'GIVE_UP' | 'CHASE';
 /** 市集选择 */
 export type MarketChoice = 'TAKE_DISCOUNT' | 'WORK';
 
-/** 天气预报询问选择 */
-export interface ForecastOfferChoice {
-  accept: boolean;
-}
-
 export type EventChoice =
   | ({ kind: 'SANDSTORM' } & SandstormChoice)
   | ({ kind: 'RAINSTORM' } & RainstormChoice)
   | { kind: 'CARAVAN'; action: CaravanChoice }
   | { kind: 'THIEF'; action: ThiefChoice }
-  | { kind: 'MARKET'; action: MarketChoice }
-  | { kind: 'FORECAST_OFFER'; accept: boolean };
+  | { kind: 'MARKET'; action: MarketChoice };
 
 /* ------------------------------------------------------------------ */
-/* 天气预报视图                                                         */
+/* 天气预报视图（单日、当前格 + 8 邻域）                                  */
 /* ------------------------------------------------------------------ */
 
-export interface ForecastRow {
-  nodeId: NodeId;
-  /** 地形是否已知（未知则值为 UNKNOWN） */
+export interface ForecastCell {
+  tileId: TileId;
+  row: number;
+  col: number;
+  /** 是否为玩家当前格 */
+  isCurrent: boolean;
+  /** 地形是否已揭示（未知格只显示坐标与天气，不揭示地形） */
   terrainKnown: boolean;
-  /** 未来 3 天天气；terrainKnown=false 时为 ['UNKNOWN','UNKNOWN','UNKNOWN'] */
-  values: Array<WeatherType | 'UNKNOWN'>;
+  /** 下一天天气（战争迷雾不隐藏天气本身） */
+  weather: WeatherType;
 }
 
 export interface ForecastView {
-  /** 预报覆盖的天序号（1-based 游戏日） */
-  dayNumbers: number[];
-  rows: ForecastRow[];
+  /** 预报的目标天（1-based 游戏日，即“明天”） */
+  day: number;
+  /** 当前格 + 8 邻域（地图边缘自动裁剪），最多 9 格 */
+  cells: ForecastCell[];
 }
 
 /* ------------------------------------------------------------------ */
 /* 行动                                                                */
 /* ------------------------------------------------------------------ */
 
-export type GameActionType = 'MINE' | 'START_RETURN' | 'REST' | 'BUY';
+export type GameActionType =
+  | 'MINE'
+  | 'START_RETURN'
+  | 'REST'
+  | 'BUY'
+  | 'BUY_FORECAST_PACK'
+  | 'USE_FORECAST'
+  | 'WAIT';
 
 export interface GameAction {
   type: GameActionType;
@@ -142,7 +177,6 @@ export interface GameAction {
 /** 提供给 UI 的行动描述 */
 export interface ActionInfo {
   action: GameAction;
-  /** 展示名 */
   label: string;
   hint?: string;
   price?: number;
@@ -159,17 +193,17 @@ export interface SettlementView {
   defeatReason: DefeatReason | null;
   seed: string;
   daysUsed: number;
+  maxDays: number;
   outboundDays: number | null;
   miningDays: number;
   returnDays: number;
-  forecastCount: number;
+  forecastPacks: number;
   gemsKg: number;
-  /** 以下定价字段仅在进入过矿区后有值 */
+  /** 进入矿区后锁定的成交单价（v0.1.2 动态评估价） */
+  gemPrice: number | null;
+  mineSlot: MineSlot | null;
   routeScore: number | null;
   stars: number | null;
-  baseGemPrice: number | null;
-  marketFactor: number | null;
-  gemPrice: number | null;
   gemRevenue: number;
   equipmentSpent: number;
   cashRemaining: number;
@@ -181,16 +215,9 @@ export interface SettlementView {
 /* 全局状态                                                             */
 /* ------------------------------------------------------------------ */
 
-/** 回合内标记，用于 20:00 天气预报询问的触发判定 */
-export interface TurnFlags {
-  /** 本回合因迷路/泥沼等额外损失了整天 */
-  penaltyDay: boolean;
-  /** 本回合消耗的是天气预报整天 */
-  forecastDay: boolean;
-}
-
 export interface GameStats {
-  forecastCount: number;
+  /** 购买的天气预报包数量（每包 maxDays-1） */
+  forecastPacks: number;
   /** 进入矿区当天的 daysUsed 快照（未进矿为 null） */
   outboundDays: number | null;
   miningDays: number;
@@ -200,12 +227,14 @@ export interface GameStats {
 
 export interface GameState {
   seed: string;
-  /** mulberry32 内部状态（uint32），仅市场系数等运行期随机使用 */
+  /** mulberry32 内部状态（uint32；v0.1.2 运行期不再消耗随机数，保留字段以防未来扩展） */
   rngState: number;
 
   map: GameMap;
 
   daysUsed: number;
+  /** 最大旅程天数（购买天气预报包会永久 -1） */
+  maxDays: number;
   phase: Phase;
   status: GameStatus;
   defeatReason: DefeatReason | null;
@@ -219,57 +248,53 @@ export interface GameState {
   compasses: number;
   equipmentSpent: number;
 
-  position: NodeId;
-  /** 锁定的矿区入口（进入矿区后设置） */
-  mineEntranceId: NodeId | null;
+  /** 剩余天气预报次数（购买 +3，使用 -1，不过期） */
+  forecastCharges: number;
 
-  /** 路线难度与定价（进入矿区后锁定） */
-  routeScore: number | null;
-  baseGemPrice: number | null;
-  marketFactor: number | null;
+  position: TileId;
+  /** 锁定的矿区（进入矿区后设置） */
+  mineEntranceId: TileId | null;
+
+  /** 进矿时锁定的成交单价 */
   gemPrice: number | null;
+  /** 路线风险评分（仅供统计，不影响售价） */
+  routeScore: number | null;
 
-  visitedOutbound: NodeId[];
-  visitedReturn: NodeId[];
+  visitedOutbound: TileId[];
+  visitedReturn: TileId[];
 
-  /** 亲自探索过的节点（地形永久揭示） */
-  explored: NodeId[];
-  /** 通过商队/牧民情报获知地形的节点 */
-  intelKnown: NodeId[];
+  /** 亲自探索过的格子（地形永久揭示） */
+  explored: TileId[];
+  /** 通过商队/牧民情报获知地形的格子 */
+  intelKnown: TileId[];
+  /** 已触发过遭遇的格子（每格每局最多一次） */
+  triggeredEncounters: TileId[];
 
   /** 每个绿洲是否已休整过 */
-  oasisRestUsed: Record<NodeId, boolean>;
-  /** 每个绿洲是否干涸（开局由 Seed 决定） */
-  oasisDrought: Record<NodeId, boolean>;
-
-  /** 预生成天气表：weather[nodeId][day-1] */
-  weather: Record<NodeId, WeatherType[]>;
-  /** 预生成遭遇 roll 表：encounterRolls[nodeId][day-1] ∈ [0,1) */
-  encounterRolls: Record<NodeId, number[]>;
+  oasisRestUsed: Record<TileId, boolean>;
 
   /** 待处理事件队列（Modal） */
   pendingEvents: PendingEvent[];
-  /** 最近一次购买的天预报视图（移动/消耗天后清除） */
+  /** 最近一次天气预报视图（购买自动使用 / 手动使用时设置；天数推进后失效） */
   lastForecast: ForecastView | null;
 
   /** 市集八折是否对当前村庄访问生效 */
   visitDiscount: boolean;
 
-  turnFlags: TurnFlags;
   stats: GameStats;
   log: LogEntry[];
 }
 
 /** createNewGame 的可选注入（主要供测试使用） */
 export interface CreateGameOptions {
-  /** 覆盖指定节点整列天气（索引 = day-1） */
-  weather?: Record<NodeId, WeatherType[]>;
-  /** 覆盖指定节点整列遭遇 roll（索引 = day-1） */
-  encounters?: Record<NodeId, number[]>;
+  /** 覆盖指定格子的整列天气（索引 = day-1） */
+  weather?: Record<TileId, WeatherType[]>;
+  /** 覆盖指定格子的预生成遭遇 */
+  encounters?: Record<TileId, EncounterKind | null>;
   /** 覆盖绿洲干涸状态 */
-  drought?: Record<NodeId, boolean>;
-  /** 使用自定义地图（测试用） */
-  map?: GameMap;
+  drought?: Record<TileId, boolean>;
+  /** 覆盖初始最大天数（默认取配置） */
+  maxDays?: number;
 }
 
 /** 引擎错误 */

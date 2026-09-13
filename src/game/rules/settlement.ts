@@ -1,4 +1,4 @@
-import { GameState, SettlementView } from '../types';
+import type { GameState, SettlementView } from '../types';
 import { gameConfig } from '../config/gameConfig';
 import { computeStarRating } from './routeScore';
 
@@ -13,36 +13,28 @@ export function computeSettlement(state: GameState): SettlementView {
   const finalAssets = state.cash + gemRevenue;
 
   const { outboundDays, miningDays, returnStartDay } = state.stats;
-  let outbound: number;
-  if (outboundDays !== null) {
-    outbound = outboundDays;
-  } else {
-    // 未进入过矿区：全部天数都算去程
-    outbound = state.daysUsed;
-  }
-  const mining = miningDays;
-  let ret: number;
-  if (returnStartDay !== null) {
-    ret = state.daysUsed - returnStartDay;
-  } else {
-    ret = 0;
-  }
+  const outbound = outboundDays ?? state.daysUsed;
+  const ret = returnStartDay !== null ? state.daysUsed - returnStartDay : 0;
+
+  const mineSlot = state.mineEntranceId
+    ? (state.map.mines.find((m) => m.tileId === state.mineEntranceId)?.slot ?? null)
+    : null;
 
   return {
     outcome: state.status,
     defeatReason: state.defeatReason,
     seed: state.seed,
     daysUsed: state.daysUsed,
+    maxDays: state.maxDays,
     outboundDays: outbound,
-    miningDays: mining,
+    miningDays: miningDays,
     returnDays: ret,
-    forecastCount: state.stats.forecastCount,
+    forecastPacks: state.stats.forecastPacks,
     gemsKg: state.gemsKg,
+    gemPrice: state.gemPrice,
+    mineSlot,
     routeScore: state.routeScore,
     stars: state.routeScore !== null ? computeStarRating(state.routeScore) : null,
-    baseGemPrice: state.baseGemPrice,
-    marketFactor: state.marketFactor,
-    gemPrice: state.gemPrice,
     gemRevenue,
     equipmentSpent: state.equipmentSpent,
     cashRemaining: state.cash,

@@ -21,7 +21,8 @@ export {
 export { starLabel } from './rules/routeScore';
 export { weatherNames } from './rules/weather';
 export { tentLabel } from './rules/equipment';
-export { worldMap } from './map/worldMap';
+export { generateWorld } from './map/generate';
+export { tileIdOf, parseTileId, gridNeighbors, manhattan } from './map/grid';
 export { gameConfig } from './config/gameConfig';
 export { randomSeed } from './random/rng';
 export * from './types';
