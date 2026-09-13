@@ -12,13 +12,14 @@ export default function StartScreen({ onStart, randomSeed }: Props) {
     <div className="app-shell">
       <div className="start-screen">
         <h1>绿洲计划</h1>
-        <p className="subtitle">PROJECT OASIS · 沙漠商队策略 · v0.1.0</p>
+        <p className="subtitle">PROJECT OASIS · 沙漠商队策略 · v0.1.2</p>
         <div className="start-card">
           <p className="desc">
-            你携带 <b>2000 元</b> 从城市出发。穿越沙漠与草地，抵达远方的宝库矿区，
-            自行决定挖矿天数，再沿一条<b>完全不同</b>的路线返回城市。
-            整个旅程必须在 <b>42 天</b> 内完成——宝石越危险的路线越值钱，但你的体力、
-            帐篷与时间都是有限的。
+            你携带 <b>2000 元</b> 从城市出发。穿越<b>随机生成</b>的沙漠与草原，
+            抵达两个随机矿区之一（开局即显示各自宝石收购价），自行决定挖矿天数，
+            再沿一条<b>不重复</b>的路线返回城市。
+            整个旅程必须在 <b>42 天</b>内完成——路线越危险矿价越高，
+            但你的体力、帐篷与时间都是有限的。
           </p>
           <div className="seed-row">
             <input
