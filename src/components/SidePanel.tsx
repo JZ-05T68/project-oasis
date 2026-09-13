@@ -12,19 +12,46 @@ interface Props {
   onAction: (action: ActionInfo['action']) => void;
 }
 
+const TERRAIN_NAMES: Record<string, string> = {
+  CITY: '城市',
+  DESERT: '沙漠',
+  GRASS: '草地',
+  VILLAGE: '村庄',
+  OASIS: '绿洲',
+  MINE: '矿区',
+};
+
 export default function SidePanel({ game, onAction }: Props) {
-  const node = game.map.nodes[game.position];
+  const tile = game.map.tiles[game.position];
   const weather = getCurrentWeather(game);
   const actions = panelActions(game);
+  const lockedMine = game.mineEntranceId
+    ? game.map.mines.find((m) => m.tileId === game.mineEntranceId)
+    : null;
 
   return (
     <div>
+      <div className="panel">
+        <h3 className="panel-title">矿区情报（开局已知）</h3>
+        {game.map.mines.map((m) => (
+          <div className="location-line" key={m.slot}>
+            <span className="k">
+              Mine {m.slot} ({m.row},{m.col})
+            </span>
+            <span>
+              <b>¥{m.gemPrice}/kg</b> · 风险 {starLabel(m.estimatedRisk)}
+              {lockedMine?.slot === m.slot ? ' · 已锁定' : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+
       <div className="panel">
         <h3 className="panel-title">当前位置</h3>
         <div className="location-line">
           <span className="k">地点</span>
           <span>
-            {node.name}（{TERRAIN_NAMES[node.terrain]}）
+            ({tile.row},{tile.col}) {game.position === game.map.cityId ? '城市' : TERRAIN_NAMES[tile.terrain] ?? ''}
           </span>
         </div>
         <div className="location-line">
@@ -39,19 +66,17 @@ export default function SidePanel({ game, onAction }: Props) {
             </span>
           </div>
         )}
-        {game.baseGemPrice !== null && (
+        {game.gemPrice !== null && (
           <div className="location-line">
             <span className="k">宝石单价</span>
-            <span>{game.gemPrice} 元/kg（进入矿区即锁定）</span>
+            <span>{game.gemPrice} 元/kg（进矿锁定）</span>
           </div>
         )}
       </div>
 
       <div className="panel">
         <h3 className="panel-title">可执行行动</h3>
-        {game.phase === 'RETURN' && actions.length === 0 && (
-          <p className="modal-desc">沿蓝色虚线路线返回城市——不要重复去程走过的格子。</p>
-        )}
+        {actions.length === 0 && <p className="modal-desc">沿蓝色虚线轨迹返回城市。</p>}
         {actions.map((a) => (
           <button
             key={`${a.action.type}-${a.action.item ?? ''}`}
@@ -66,7 +91,7 @@ export default function SidePanel({ game, onAction }: Props) {
         ))}
         {game.phase === 'MINING' && (
           <p className="modal-desc" style={{ marginTop: 10 }}>
-            宝库安全无天气。多挖一天多 2kg 宝石，但返程的时间与风险由你自己承担。
+            矿区安全无天气。多挖一天多 2kg 宝石，但返程的时间与风险由你自己承担。
           </p>
         )}
       </div>
@@ -86,16 +111,7 @@ export default function SidePanel({ game, onAction }: Props) {
   );
 }
 
-const TERRAIN_NAMES: Record<string, string> = {
-  CITY: '城市',
-  DESERT: '沙漠',
-  GRASS: '草地',
-  VILLAGE: '村庄',
-  OASIS: '绿洲',
-  MINE: '矿区入口',
-};
-
-/** 侧栏行动：挖矿/返程/休整/购买（来自引擎，附加面板可用性过滤） */
+/** 侧栏行动（来自引擎，附加面板可用性过滤） */
 function panelActions(game: GameState): ActionInfo[] {
   const all = getAvailableActions(game);
   if (game.status !== 'ONGOING') return [];

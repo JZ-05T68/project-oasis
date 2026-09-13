@@ -6,7 +6,7 @@ import {
   resolvePendingEvent,
   randomSeed,
 } from '../game';
-import type { EventChoice, ForecastView, GameAction, GameState, NodeId } from '../game/types';
+import type { EventChoice, ForecastView, GameAction, GameState, TileId } from '../game/types';
 import StartScreen from '../components/StartScreen';
 import TopBar from '../components/TopBar';
 import MapView from '../components/MapView';
@@ -27,7 +27,7 @@ export default function GamePage() {
     setGame(createNewGame(seed));
   }, []);
 
-  const handleMove = useCallback((to: NodeId) => {
+  const handleMove = useCallback((to: TileId) => {
     setGame((g) => (g ? performMove(g, to) : g));
   }, []);
 
@@ -52,10 +52,7 @@ export default function GamePage() {
       <TopBar game={game} />
       <div className="game-layout">
         <MapView game={game} onMove={handleMove} />
-        <SidePanel
-          game={game}
-          onAction={handleAction}
-        />
+        <SidePanel game={game} onAction={handleAction} />
       </div>
       {game.pendingEvents.length > 0 && (
         <EventModal game={game} onChoice={handleChoice} />

@@ -7,7 +7,7 @@ interface Props {
 }
 
 const DEFEAT_TEXT: Record<string, string> = {
-  TIMEOUT: '时间耗尽——第 43 天的太阳升起时，你已经永远留在了荒野之中。',
+  TIMEOUT: '时间耗尽——最大旅程天数用尽的时刻到来时，你已经永远留在了荒野之中。',
   STAMINA_EXHAUSTED: '耐力耗尽——你和商队倒在离绿洲很远的地方。',
   RETURN_ROUTE_SEVERED: '返程路线中断——去程与返程的足迹封死了所有归途。',
   TRAPPED: '进退无路——四周都是你自己留下的脚印。',
@@ -20,12 +20,12 @@ export default function Settlement({ game, onRestart }: Props) {
   return (
     <div className="app-shell">
       <div className="settlement">
-        <div className={`panel ${win ? '' : ''}`}>
+        <div className="panel">
           <div className={`verdict ${win ? 'win' : 'lose'}`}>{win ? '成功返城' : '旅途终结'}</div>
           <p className="verdict-sub">
             {win
-              ? `你在第 ${v.daysUsed} 天带着宝石回到了城市。`
-              : DEFEAT_TEXT[v.defeatReason ?? ''] ?? '旅途就此结束。'}
+              ? `你在第 ${v.daysUsed} 天（上限 ${v.maxDays} 天）带着宝石回到了城市。`
+              : (v.defeatReason ? DEFEAT_TEXT[v.defeatReason] : '旅途就此结束。')}
           </p>
           <table className="settle-table">
             <tbody>
@@ -34,8 +34,10 @@ export default function Settlement({ game, onRestart }: Props) {
                 <td className="v">{v.seed}</td>
               </tr>
               <tr>
-                <td className="k">总用时</td>
-                <td className="v">{v.daysUsed} 天</td>
+                <td className="k">总用时 / 天数上限</td>
+                <td className="v">
+                  {v.daysUsed} / {v.maxDays} 天
+                </td>
               </tr>
               <tr>
                 <td className="k">去程 / 采矿 / 返程</td>
@@ -44,38 +46,32 @@ export default function Settlement({ game, onRestart }: Props) {
                 </td>
               </tr>
               <tr>
-                <td className="k">天气预报次数</td>
-                <td className="v">{v.forecastCount}</td>
+                <td className="k">天气预报包购买次数</td>
+                <td className="v">{v.forecastPacks}</td>
               </tr>
               <tr>
                 <td className="k">装备支出</td>
                 <td className="v">{v.equipmentSpent} 元</td>
               </tr>
+              {v.mineSlot && (
+                <tr>
+                  <td className="k">进入矿区</td>
+                  <td className="v">Mine {v.mineSlot}</td>
+                </tr>
+              )}
               {v.routeScore !== null && (
-                <>
-                  <tr>
-                    <td className="k">路线风险评分（仅供统计）</td>
-                    <td className="v">
-                      {v.routeScore}（{starLabel(v.stars ?? 1)}）
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="k">宝石单价（进矿锁定）</td>
-                    <td className="v">{v.baseGemPrice} 元/kg</td>
-                  </tr>
-                  {v.marketFactor !== null && v.marketFactor !== 1 && (
-                    <tr>
-                      <td className="k">市场因素</td>
-                      <td className="v">× {v.marketFactor.toFixed(2)}</td>
-                    </tr>
-                  )}
-                  {v.marketFactor !== null && v.marketFactor !== 1 && (
-                    <tr>
-                      <td className="k">最终成交价</td>
-                      <td className="v">{v.gemPrice ?? '-'} 元/kg</td>
-                    </tr>
-                  )}
-                </>
+                <tr>
+                  <td className="k">路线风险评分（仅供统计）</td>
+                  <td className="v">
+                    {v.routeScore}（{starLabel(v.stars ?? 1)}）
+                  </td>
+                </tr>
+              )}
+              {v.gemPrice !== null && (
+                <tr>
+                  <td className="k">宝石单价（进矿锁定）</td>
+                  <td className="v">{v.gemPrice} 元/kg</td>
+                </tr>
               )}
               <tr>
                 <td className="k">宝石重量</td>

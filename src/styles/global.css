@@ -137,14 +137,82 @@ button {
   background: var(--green);
 }
 
-/* ---------- 地图 ---------- */
+/* ---------- 格子地图（v0.1.2） ---------- */
 
-.map-panel svg {
-  width: 100%;
-  height: auto;
-  display: block;
-  background: linear-gradient(160deg, #191712 0%, #211c12 60%, #191408 100%);
+.grid-scroll {
+  max-height: 62vh;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
+  background: linear-gradient(160deg, #191712 0%, #211c12 60%, #191408 100%);
+}
+
+.grid-map {
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+  min-width: 420px;
+}
+
+.grid-tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #141b18;
+  border-radius: 4px;
+  background: #6b6355;
+  color: #141b18;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+.grid-tile.unknown {
+  background: #3a3831;
+  color: #8d8574;
+  border-style: dashed;
+  border-color: #55503f;
+}
+
+.grid-tile.clickable {
+  cursor: pointer;
+  outline: 2px dashed #7cb46b;
+  outline-offset: -2px;
+  z-index: 2;
+}
+
+.grid-tile.clickable:hover {
+  filter: brightness(1.15);
+  z-index: 3;
+}
+
+.grid-tile.on-out {
+  border: 2px solid #d9a94e;
+}
+
+.grid-tile.on-ret {
+  border: 2px dashed #5d9dd8;
+}
+
+.grid-tile.current {
+  box-shadow: 0 0 0 2px #fff inset;
+}
+
+.grid-glyph {
+  line-height: 1;
+}
+
+.grid-price {
+  font-size: 9px;
+  font-weight: 600;
+  color: #4a3410;
+  line-height: 1.1;
 }
 
 .map-node {
@@ -291,15 +359,62 @@ button {
   background: var(--bg-panel);
   border: 1px solid var(--gold);
   border-radius: 12px;
-  padding: 20px 22px;
   width: min(520px, 94vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
 }
 
-.modal h3 {
-  margin: 0 0 6px;
+.modal.modal-wide {
+  width: min(640px, 94vw);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  flex: 0 0 auto;
+}
+
+.modal-header h3 {
+  margin: 0;
   color: var(--gold);
   font-size: 17px;
+}
+
+.modal-close {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.modal-close:hover {
+  color: var(--text);
+  border-color: var(--gold);
+}
+
+.modal-body {
+  padding: 14px 18px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.modal-footer {
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
 }
 
 .modal .modal-desc {
@@ -313,6 +428,47 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* 预报九宫格 */
+.forecast-grid9 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.forecast-cell {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.forecast-cell.is-current {
+  border-color: var(--gold);
+}
+
+.forecast-cell.is-unknown {
+  background: #20241f;
+}
+
+.forecast-cell .fc-coord {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.forecast-cell .fc-terrain {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.forecast-cell.is-unknown .fc-terrain {
+  color: var(--text-dim);
 }
 
 .warn-text {

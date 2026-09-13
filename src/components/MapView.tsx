@@ -1,9 +1,9 @@
 import { getLegalMoves, isTerrainKnown } from '../game';
-import type { GameState, NodeId, TerrainType } from '../game/types';
+import type { GameState, TerrainType, TileId } from '../game/types';
 
 interface Props {
   game: GameState;
-  onMove: (to: NodeId) => void;
+  onMove: (to: TileId) => void;
 }
 
 const TERRAIN_COLORS: Record<TerrainType, string> = {
@@ -33,134 +33,71 @@ const TERRAIN_NAMES: Record<TerrainType, string> = {
   MINE: '矿区',
 };
 
-const SCALE = 62;
-const PAD = 46;
-
-function nodePos(game: GameState, id: NodeId): { cx: number; cy: number } {
-  const n = game.map.nodes[id];
-  return { cx: PAD + n.x * SCALE, cy: PAD + n.y * SCALE };
-}
-
-/** 判断边 a-b 是否属于给定路线（相邻先后出现） */
-function isRouteEdge(route: NodeId[], a: NodeId, b: NodeId): boolean {
-  for (let i = 0; i < route.length - 1; i++) {
-    if ((route[i] === a && route[i + 1] === b) || (route[i] === b && route[i + 1] === a)) {
-      return true;
-    }
-  }
-  return false;
-}
-
+/** v0.1.2：CSS Grid 格子地图 */
 export default function MapView({ game, onMove }: Props) {
-  const known = (id: NodeId) => isTerrainKnown(game, id);
+  const known = (id: TileId) => isTerrainKnown(game, id);
   const legal =
     game.status === 'ONGOING' && game.pendingEvents.length === 0
       ? new Set(getLegalMoves(game))
-      : new Set<NodeId>();
+      : new Set<TileId>();
   const outboundSet = new Set(game.visitedOutbound);
   const returnSet = new Set(game.visitedReturn);
 
-  const bounds = Object.values(game.map.nodes).reduce(
-    (acc, n) => ({
-      maxX: Math.max(acc.maxX, n.x),
-      maxY: Math.max(acc.maxY, n.y),
-    }),
-    { maxX: 0, maxY: 0 },
+  const tiles = Object.values(game.map.tiles).sort((a, b) =>
+    a.row === b.row ? a.col - b.col : a.row - b.row,
   );
-  const width = PAD * 2 + bounds.maxX * SCALE;
-  const height = PAD * 2 + bounds.maxY * SCALE;
 
   return (
     <div className="panel map-panel">
-      <h3 className="panel-title">地图 · 道路网</h3>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="游戏地图">
-        {/* 道路（始终可见） */}
-        {game.map.edges.map(([a, b], i) => {
-          const pa = nodePos(game, a);
-          const pb = nodePos(game, b);
-          const onOut = isRouteEdge(game.visitedOutbound, a, b);
-          const onRet = isRouteEdge(game.visitedReturn, a, b);
-          return (
-            <line
-              key={i}
-              x1={pa.cx}
-              y1={pa.cy}
-              x2={pb.cx}
-              y2={pb.cy}
-              stroke={onOut ? '#d9a94e' : onRet ? '#5d9dd8' : '#4a4232'}
-              strokeWidth={onOut || onRet ? 3.4 : 1.6}
-              strokeDasharray={onRet ? '7 4' : undefined}
-              opacity={onOut || onRet ? 0.95 : 0.55}
-            />
-          );
-        })}
-
-        {/* 节点 */}
-        {Object.values(game.map.nodes).map((n) => {
-          const { cx, cy } = nodePos(game, n.id);
-          const isKnown = known(n.id);
-          const isLegal = legal.has(n.id);
-          const isCurrent = game.position === n.id;
-          const fill = isKnown ? TERRAIN_COLORS[n.terrain] : '#6b6355';
-          const glyph = isKnown ? TERRAIN_GLYPH[n.terrain] : '?';
-          const onOutbound = outboundSet.has(n.id);
-          const onReturn = returnSet.has(n.id);
-          return (
-            <g
-              key={n.id}
-              className={`map-node ${isLegal ? 'clickable' : ''}`}
-              data-nodeid={n.id}
-              onClick={isLegal ? () => onMove(n.id) : undefined}
-            >
-              {isLegal && (
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={21}
-                  fill="none"
-                  stroke="#7cb46b"
-                  strokeWidth={2.4}
-                  strokeDasharray="4 3"
-                />
-              )}
-              {isCurrent && (
-                <circle cx={cx} cy={cy} r={23} fill="none" stroke="#fff" strokeWidth={2.2} opacity={0.9} />
-              )}
-              <circle
-                cx={cx}
-                cy={cy}
-                r={16}
-                fill={fill}
-                stroke={onOutbound ? '#d9a94e' : onReturn ? '#5d9dd8' : '#141b18'}
-                strokeWidth={onOutbound || onReturn ? 3 : 1.4}
-                strokeDasharray={isKnown ? undefined : '3 2'}
-                opacity={isKnown ? 1 : 0.72}
-              />
-              <text
-                x={cx}
-                y={cy + 4.5}
-                textAnchor="middle"
-                fontSize={13}
-                fontWeight={700}
-                fill={isKnown ? '#141b18' : '#d8d2c0'}
-                pointerEvents="none"
+      <h3 className="panel-title">
+        地图 · {game.map.rows}×{game.map.cols}（左下城市 · 右侧双矿）
+      </h3>
+      <div className="grid-scroll">
+        <div
+          className="grid-map"
+          style={{ gridTemplateColumns: `repeat(${game.map.cols}, minmax(34px, 1fr))` }}
+          role="grid"
+          aria-label="游戏地图"
+        >
+          {tiles.map((t) => {
+            const isKnown = known(t.id);
+            const isLegal = legal.has(t.id);
+            const isCurrent = game.position === t.id;
+            const onOut = outboundSet.has(t.id);
+            const onRet = returnSet.has(t.id);
+            const glyph = isKnown ? TERRAIN_GLYPH[t.terrain] : '?';
+            const style: React.CSSProperties = {};
+            if (isKnown) style.background = TERRAIN_COLORS[t.terrain];
+            const mine = t.terrain === 'MINE' && t.mineSlot ? game.map.mines.find((m) => m.slot === t.mineSlot) : undefined;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                data-tileid={t.id}
+                className={[
+                  'grid-tile',
+                  isLegal ? 'clickable' : '',
+                  isCurrent ? 'current' : '',
+                  onOut ? 'on-out' : '',
+                  onRet ? 'on-ret' : '',
+                  isKnown ? '' : 'unknown',
+                ].join(' ')}
+                style={style}
+                onClick={isLegal ? () => onMove(t.id) : undefined}
+                disabled={!isLegal}
+                title={
+                  isKnown
+                    ? `(${t.row},${t.col}) ${TERRAIN_NAMES[t.terrain]}${mine ? ` ¥${mine.gemPrice}/kg` : ''}`
+                    : `(${t.row},${t.col}) 未知`
+                }
               >
-                {glyph}
-              </text>
-              <text
-                x={cx}
-                y={cy + 34}
-                textAnchor="middle"
-                fontSize={11}
-                fill={isKnown ? '#a89c82' : '#6b6355'}
-                pointerEvents="none"
-              >
-                {isKnown ? n.name : '???'}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+                <span className="grid-glyph">{glyph}</span>
+                {mine && <span className="grid-price">¥{mine.gemPrice}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="map-legend">
         {(['CITY', 'DESERT', 'GRASS', 'VILLAGE', 'OASIS', 'MINE'] as TerrainType[]).map((t) => (
           <span className="legend-item" key={t}>

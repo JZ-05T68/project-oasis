@@ -14,7 +14,7 @@ export default function TopBar({ game }: { game: GameState }) {
       <div className="stat">
         <span className="label">天数</span>
         <span className="value">
-          第 {game.daysUsed} / {gameConfig.maxDays} 天
+          第 {game.daysUsed} / {game.maxDays} 天
         </span>
       </div>
       <div className="stat">
@@ -40,6 +40,10 @@ export default function TopBar({ game }: { game: GameState }) {
       <div className="stat">
         <span className="label">宝石</span>
         <span className="value">{game.gemsKg} kg</span>
+      </div>
+      <div className="stat">
+        <span className="label">预报次数</span>
+        <span className="value">{game.forecastCharges}</span>
       </div>
       <div className="stat">
         <span className="label">Seed</span>

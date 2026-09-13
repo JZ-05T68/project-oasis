@@ -1,5 +1,55 @@
+import { useEffect } from 'react';
 import { gameConfig, weatherNames } from '../game';
 import type { EventChoice, GameState, WeatherType } from '../game/types';
+
+/* ------------------------------------------------------------------ */
+/* Modal 基础壳（P0 修复）                                              */
+/*  - 信息类 Modal：× 永远可见、Esc 关闭、Footer 关闭、内容内部滚动        */
+/*  - 事件类 Modal：必须做出选择（不提供 × / Esc），但内容内部滚动         */
+/*    保证选项永远可达，不会形成无法退出的状态                            */
+/* ------------------------------------------------------------------ */
+
+interface ShellProps {
+  title: string;
+  /** 传入则允许 × / Esc / Footer 关闭（信息类 Modal） */
+  onClose?: () => void;
+  children: React.ReactNode;
+  wide?: boolean;
+}
+
+export function ModalShell({ title, onClose, children, wide }: ShellProps) {
+  useEffect(() => {
+    if (!onClose) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="modal-backdrop">
+      <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-label={title}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+          {onClose && (
+            <button type="button" className="modal-close" onClick={onClose} aria-label="关闭">
+              ×
+            </button>
+          )}
+        </div>
+        <div className="modal-body">{children}</div>
+        {onClose && (
+          <div className="modal-footer">
+            <button type="button" className="btn" onClick={onClose}>
+              关闭
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   game: GameState;
@@ -20,172 +70,143 @@ export default function EventModal({ game, onChoice }: Props) {
       const canTent = game.tents.length > 0;
       const canCompass = game.compasses > 0;
       return (
-        <Modal
-          title="沙尘暴！"
-          desc="风沙遮天蔽日。是否使用你的装备？帐篷可逐次抵挡（耐久 -1），指南针可辨别方向（单次消耗）。"
-        >
-          {canTent && canCompass && (
-            <button className="btn gold" onClick={() => choice({ kind: 'SANDSTORM', useTent: true, useCompass: true })}>
-              帐篷 + 指南针（安全通过）
+        <ModalShell title="沙尘暴！">
+          <p className="modal-desc">
+            风沙遮天蔽日。是否使用你的装备？帐篷可逐次抵挡（耐久 -1），指南针可辨别方向（单次消耗）。
+          </p>
+          <div className="modal-actions">
+            {canTent && canCompass && (
+              <button className="btn gold" onClick={() => choice({ kind: 'SANDSTORM', useTent: true, useCompass: true })}>
+                帐篷 + 指南针（安全通过）
+              </button>
+            )}
+            {canTent && (
+              <button className="btn" onClick={() => choice({ kind: 'SANDSTORM', useTent: true, useCompass: false })}>
+                只用帐篷（帐篷耐久 -1，但会迷路：额外损失 1 天）
+              </button>
+            )}
+            {canCompass && (
+              <button className="btn" onClick={() => choice({ kind: 'SANDSTORM', useTent: false, useCompass: true })}>
+                只用指南针（耐力 -1，不迷路）
+              </button>
+            )}
+            <button className="btn" onClick={() => choice({ kind: 'SANDSTORM', useTent: false, useCompass: false })}>
+              什么都不用（耐力 -1，且迷路额外损失 1 天）
             </button>
-          )}
-          {canTent && (
-            <button className="btn" onClick={() => choice({ kind: 'SANDSTORM', useTent: true, useCompass: false })}>
-              只用帐篷（帐篷耐久 -1，但会迷路：额外损失 1 天）
-            </button>
-          )}
-          {canCompass && (
-            <button className="btn" onClick={() => choice({ kind: 'SANDSTORM', useTent: false, useCompass: true })}>
-              只用指南针（耐力 -1，不迷路）
-            </button>
-          )}
-          <button className="btn" onClick={() => choice({ kind: 'SANDSTORM', useTent: false, useCompass: false })}>
-            什么都不用（耐力 -1，且迷路额外损失 1 天）
-          </button>
-        </Modal>
+          </div>
+        </ModalShell>
       );
     }
     case 'RAINSTORM':
       return (
-        <Modal
-          title="草原暴雨！"
-          desc="倾盆大雨浇在草原上。帐篷可以保住体力——但暴雨会整顶报废帐篷（无论还剩多少沙漠耐久）。"
-        >
-          {game.tents.length > 0 && (
-            <button className="btn gold" onClick={() => choice({ kind: 'RAINSTORM', useTent: true })}>
-              使用帐篷（整顶消耗，不掉耐力）
+        <ModalShell title="草原暴雨！">
+          <p className="modal-desc">
+            倾盆大雨浇在草原上。帐篷可以保住体力——但暴雨会整顶报废帐篷（无论还剩多少沙漠耐久）。
+          </p>
+          <div className="modal-actions">
+            {game.tents.length > 0 && (
+              <button className="btn gold" onClick={() => choice({ kind: 'RAINSTORM', useTent: true })}>
+                使用帐篷（整顶消耗，不掉耐力）
+              </button>
+            )}
+            <button className="btn" onClick={() => choice({ kind: 'RAINSTORM', useTent: false })}>
+              {game.tents.length > 0 ? '不用帐篷（耐力 -1）' : '冒雨硬扛（耐力 -1）'}
             </button>
-          )}
-          <button className="btn" onClick={() => choice({ kind: 'RAINSTORM', useTent: false })}>
-            {game.tents.length > 0 ? '不用帐篷（耐力 -1）' : '冒雨硬扛（耐力 -1）'}
-          </button>
-        </Modal>
+          </div>
+        </ModalShell>
       );
     case 'CARAVAN':
       return (
-        <Modal
-          title="沙漠商队"
-          desc="一支商队愿意做笔买卖：二选一。购买不消耗时间。"
-        >
-          <button
-            className="btn gold"
-            disabled={game.cash < gameConfig.caravanTentPrice}
-            onClick={() => choice({ kind: 'CARAVAN', action: 'BUY_TENT' })}
-          >
-            花费 {gameConfig.caravanTentPrice} 元购买一顶二手帐篷（3 次沙漠耐久）
-            {game.cash < gameConfig.caravanTentPrice && ' —— 现金不足'}
-          </button>
-          <button className="btn" onClick={() => choice({ kind: 'CARAVAN', action: 'TAKE_INTEL' })}>
-            免费获取周边 3 格以内的地形情报
-          </button>
-        </Modal>
+        <ModalShell title="沙漠商队">
+          <p className="modal-desc">一支商队愿意做笔买卖：二选一。购买不消耗时间。</p>
+          <div className="modal-actions">
+            <button
+              className="btn gold"
+              disabled={game.cash < gameConfig.caravanTentPrice}
+              onClick={() => choice({ kind: 'CARAVAN', action: 'BUY_TENT' })}
+            >
+              花费 {gameConfig.caravanTentPrice} 元购买一顶二手帐篷（3 次沙漠耐久）
+              {game.cash < gameConfig.caravanTentPrice && ' —— 现金不足'}
+            </button>
+            <button className="btn" onClick={() => choice({ kind: 'CARAVAN', action: 'TAKE_INTEL' })}>
+              免费获取周边 2 格内（曼哈顿距离）的地形情报
+            </button>
+          </div>
+        </ModalShell>
       );
     case 'THIEF':
       return (
-        <Modal
-          title="盗贼夜袭！"
-          desc={`盗贼抢走了 ${event.stolen} 元。是否追回？`}
-        >
-          <button className="btn" onClick={() => choice({ kind: 'THIEF', action: 'GIVE_UP' })}>
-            放弃（损失 {event.stolen} 元）
-          </button>
-          <button className="btn gold" onClick={() => choice({ kind: 'THIEF', action: 'CHASE' })}>
-            追回（消耗 1 天，全额找回）
-            {game.daysUsed + 1 > gameConfig.maxDays && (
-              <span className="warn-text"> —— 这将超出 42 天期限！</span>
-            )}
-          </button>
-        </Modal>
+        <ModalShell title="盗贼夜袭！">
+          <p className="modal-desc">盗贼抢走了 {event.stolen} 元。是否追回？</p>
+          <div className="modal-actions">
+            <button className="btn" onClick={() => choice({ kind: 'THIEF', action: 'GIVE_UP' })}>
+              放弃（损失 {event.stolen} 元）
+            </button>
+            <button className="btn gold" onClick={() => choice({ kind: 'THIEF', action: 'CHASE' })}>
+              追回（消耗 1 天，全额找回）
+              {game.daysUsed + 1 > game.maxDays && <span className="warn-text"> —— 这将超出最大天数！</span>}
+            </button>
+          </div>
+        </ModalShell>
       );
     case 'MARKET':
       return (
-        <Modal
-          title="繁荣市集"
-          desc="村里正逢繁荣市集！二选一：享用八折购物，或打一天工赚钱。"
-        >
-          <button className="btn gold" onClick={() => choice({ kind: 'MARKET', action: 'TAKE_DISCOUNT' })}>
-            八折购物（帐篷 {gameConfig.marketDiscountTentPrice} 元 / 指南针 {gameConfig.marketDiscountCompassPrice} 元，本次停留有效）
-          </button>
-          <button className="btn" onClick={() => choice({ kind: 'MARKET', action: 'WORK' })}>
-            打工（消耗 1 天，赚得 {gameConfig.workPay} 元）
-            {game.daysUsed + 1 > gameConfig.maxDays && (
-              <span className="warn-text"> —— 这将超出 42 天期限！</span>
-            )}
-          </button>
-        </Modal>
-      );
-    case 'FORECAST_OFFER':
-      return (
-        <Modal
-          title="20:00 · 观测站的邀请"
-          desc="是否把下一天用于观测天气？查看将消耗一整天（该天不能移动或行动），之后你将看到未来 3 天已知区域的天气。"
-        >
-          <button className="btn gold" onClick={() => choice({ kind: 'FORECAST_OFFER', accept: true })}>
-            查看天气（消耗 1 天）
-            {game.daysUsed + 2 >= gameConfig.maxDays && (
-              <span className="warn-text"> —— 时间紧张！</span>
-            )}
-          </button>
-          <button className="btn" onClick={() => choice({ kind: 'FORECAST_OFFER', accept: false })}>
-            不查看
-          </button>
-        </Modal>
+        <ModalShell title="繁荣市集">
+          <p className="modal-desc">村里正逢繁荣市集！二选一：享用八折购物，或打一天工赚钱。</p>
+          <div className="modal-actions">
+            <button className="btn gold" onClick={() => choice({ kind: 'MARKET', action: 'TAKE_DISCOUNT' })}>
+              八折购物（帐篷 {gameConfig.marketDiscountTentPrice} 元 / 指南针 {gameConfig.marketDiscountCompassPrice} 元，本次停留有效）
+            </button>
+            <button className="btn" onClick={() => choice({ kind: 'MARKET', action: 'WORK' })}>
+              打工（消耗 1 天，赚得 {gameConfig.workPay} 元）
+              {game.daysUsed + 1 > game.maxDays && <span className="warn-text"> —— 这将超出最大天数！</span>}
+            </button>
+          </div>
+        </ModalShell>
       );
     default:
       return null;
   }
 }
 
-function Modal({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
-  return (
-    <div className="modal-backdrop">
-      <div className="modal">
-        <h3>{title}</h3>
-        <p className="modal-desc">{desc}</p>
-        <div className="modal-actions">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-/** 天气预报结果展示（由 GamePage 根据 lastForecast 渲染） */
+/** 天气预报结果展示（单日：当前格 + 8 邻域） */
 export function ForecastModal({ game, onClose }: { game: GameState; onClose: () => void }) {
   const view = game.lastForecast!;
   return (
-    <div className="modal-backdrop">
-      <div className="modal" style={{ width: 'min(680px, 96vw)' }}>
-        <h3>未来 3 天天气预报</h3>
-        <p className="modal-desc">
-          消耗 1 天换来的观测结果。未知地形的区域无法预报——先去探索或收集情报吧。
-        </p>
-        <table className="forecast-grid">
-          <thead>
-            <tr>
-              <th>区域</th>
-              {view.dayNumbers.map((d) => (
-                <th key={d}>第 {d} 天</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {view.rows.map((row) => (
-              <tr key={row.nodeId}>
-                <td className="node-name">{row.terrainKnown ? game.map.nodes[row.nodeId].name : '???'}</td>
-                {row.values.map((w: WeatherType | 'UNKNOWN', i: number) => (
-                  <td key={i} className={w === 'UNKNOWN' ? 'unknown' : ''}>
-                    {w === 'UNKNOWN' ? '未知' : weatherNames[w]}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="modal-actions" style={{ marginTop: 14 }}>
-          <button className="btn gold" onClick={onClose}>
-            知道了
-          </button>
-        </div>
+    <ModalShell title={`天气预报 · 第 ${view.day} 天`} onClose={onClose} wide>
+      <p className="modal-desc">
+        当前格与周围一圈（最多 9 格）的明天天气。未知地形的格子仍会显示天气（这本身就是情报），
+        但不会永久揭示地形。
+      </p>
+      <div className="forecast-grid9">
+        {view.cells.map((c) => (
+          <div
+            key={c.tileId}
+            className={`forecast-cell ${c.isCurrent ? 'is-current' : ''} ${c.terrainKnown ? '' : 'is-unknown'}`}
+          >
+            <div className="fc-coord">
+              ({c.row},{c.col}){c.isCurrent ? ' · 当前' : ''}
+            </div>
+            <div className="fc-terrain">{c.terrainKnown ? terrainName(game, c.tileId) : '未知'}</div>
+            <div className={`wtag w-${c.weather.toLowerCase()}`}>{weatherNames[c.weather]}</div>
+          </div>
+        ))}
       </div>
-    </div>
+    </ModalShell>
   );
 }
+
+function terrainName(game: GameState, tileId: string): string {
+  const t = game.map.tiles[tileId];
+  const names: Record<string, string> = {
+    CITY: '城市',
+    DESERT: '沙漠',
+    GRASS: '草地',
+    VILLAGE: '村庄',
+    OASIS: '绿洲',
+    MINE: '矿区',
+  };
+  return names[t.terrain] ?? t.terrain;
+}
+
+export type { WeatherType };
