@@ -1,7 +1,7 @@
 {
   "name": "project-oasis",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Project Oasis - a deterministic turn-based desert trade strategy game",
   "type": "module",
   "scripts": {
@@ -9,16 +9,19 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sim": "tsx scripts/run-sim.ts"
   },
   "dependencies": {
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@types/node": "^26.5.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.23.13",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
     "vitest": "^3.2.4"

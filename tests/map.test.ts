@@ -117,17 +117,20 @@ describe('固定地图：矿区定价与路线风险评分', () => {
   it('价格不受 Seed 影响（市场系数关闭）', () => {
     const prices = new Set<number>();
     for (const seed of ['mk-1', 'mk-2', 'mk-3', 'mk-4', 'mk-5', 'mk-6']) {
-      prices.add(play(seed, SOUTH).marketFactor!);
-      prices.add(play(seed, NORTH).gemPrice!);
+      const fac = play(seed, SOUTH).marketFactor;
+      const price = play(seed, NORTH).gemPrice;
+      prices.add(fac === null ? -1 : fac);
+      prices.add(price === null ? -1 : price);
     }
     expect(prices.has(1)).toBe(true);
     expect(gameConfig.marketEnabled).toBe(false);
   });
 
   it('路线风险评分仍然有效：南线 < 北线（客观风险差异保留在统计中）', () => {
-    const south = play('order-check', SOUTH);
-    const north = play('order-check', NORTH);
-    expect(south.routeScore).toBeLessThan(north.routeScore);
+    const south = play('order-check', SOUTH).routeScore ?? -1;
+    const north = play('order-check', NORTH).routeScore ?? -1;
+    expect(south).toBeGreaterThan(0);
+    expect(south).toBeLessThan(north);
   });
 
   it('草地单格风险系数高于沙漠（草地不是安全地形）', () => {
