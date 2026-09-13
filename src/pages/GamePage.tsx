@@ -7,6 +7,8 @@ import {
   randomSeed,
 } from '../game';
 import type { EventChoice, ForecastView, GameAction, GameState, TileId } from '../game/types';
+import RulesScreen from '../components/RulesScreen';
+import RulesModal from '../components/RulesModal';
 import StartScreen from '../components/StartScreen';
 import TopBar from '../components/TopBar';
 import MapView from '../components/MapView';
@@ -16,9 +18,12 @@ import Settlement from '../components/Settlement';
 
 /**
  * 页面根组件：持有唯一的 GameState。
+ * v0.1.2a：首次进入必须经过规则说明页；游戏中可随时重看规则（不耗天数）。
  * 所有规则都来自引擎；组件只负责调用引擎并整体替换状态。
  */
 export default function GamePage() {
+  const [rulesSeen, setRulesSeen] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [game, setGame] = useState<GameState | null>(null);
   const [dismissedForecast, setDismissedForecast] = useState<ForecastView | null>(null);
 
@@ -39,6 +44,10 @@ export default function GamePage() {
     setGame((g) => (g ? resolvePendingEvent(g, eventId, choice) : g));
   }, []);
 
+  if (!rulesSeen) {
+    return <RulesScreen onConfirm={() => setRulesSeen(true)} />;
+  }
+
   if (!game) {
     return <StartScreen onStart={startGame} randomSeed={randomSeed} />;
   }
@@ -49,7 +58,7 @@ export default function GamePage() {
 
   return (
     <div className="app-shell">
-      <TopBar game={game} />
+      <TopBar game={game} onOpenRules={() => setShowRules(true)} />
       <div className="game-layout">
         <MapView game={game} onMove={handleMove} />
         <SidePanel game={game} onAction={handleAction} />
@@ -63,6 +72,7 @@ export default function GamePage() {
           onClose={() => setDismissedForecast(game.lastForecast)}
         />
       )}
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>
   );
 }

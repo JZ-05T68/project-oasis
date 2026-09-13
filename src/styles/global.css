@@ -678,3 +678,26 @@ button {
   margin-top: 18px;
   text-align: center;
 }
+
+/* ---------- v0.1.2a 规则页 ---------- */
+.rules-btn {
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.rules-card {
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.rules-content h4 {
+  margin: 14px 0 6px;
+  color: #6b5232;
+}
+.rules-content p {
+  margin: 4px 0;
+  line-height: 1.65;
+}
+.rules-content ul {
+  margin: 4px 0 8px 20px;
+  line-height: 1.65;
+}

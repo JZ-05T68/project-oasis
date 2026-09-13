@@ -68,7 +68,7 @@ export default function MapView({ game, onMove }: Props) {
             const glyph = isKnown ? TERRAIN_GLYPH[t.terrain] : '?';
             const style: React.CSSProperties = {};
             if (isKnown) style.background = TERRAIN_COLORS[t.terrain];
-            const mine = t.terrain === 'MINE' && t.mineSlot ? game.map.mines.find((m) => m.slot === t.mineSlot) : undefined;
+            const mine = t.terrain === 'MINE' && t.mineSlot ? t.mineSlot : undefined;
             return (
               <button
                 key={t.id}
@@ -87,12 +87,11 @@ export default function MapView({ game, onMove }: Props) {
                 disabled={!isLegal}
                 title={
                   isKnown
-                    ? `(${t.row},${t.col}) ${TERRAIN_NAMES[t.terrain]}${mine ? ` ¥${mine.gemPrice}/kg` : ''}`
+                    ? `(${t.row},${t.col}) ${TERRAIN_NAMES[t.terrain]}${mine ? ` Mine ${mine} · 价格返城鉴定` : ''}`
                     : `(${t.row},${t.col}) 未知`
                 }
               >
                 <span className="grid-glyph">{glyph}</span>
-                {mine && <span className="grid-price">¥{mine.gemPrice}</span>}
               </button>
             );
           })}

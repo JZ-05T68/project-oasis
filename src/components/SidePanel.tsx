@@ -38,12 +38,10 @@ export default function SidePanel({ game, onAction }: Props) {
             <span className="k">
               Mine {m.slot} ({m.row},{m.col})
             </span>
-            <span>
-              <b>¥{m.gemPrice}/kg</b> · 风险 {starLabel(m.estimatedRisk)}
-              {lockedMine?.slot === m.slot ? ' · 已锁定' : ''}
-            </span>
+            <span>{lockedMine?.slot === m.slot ? '已抵达 · 待鉴定' : '价格返城后鉴定'}</span>
           </div>
         ))}
+        <p className="modal-desc">矿区的客观开采难度会影响最终宝石价值，但精确单价只有成功返城后才会公布。</p>
       </div>
 
       <div className="panel">
@@ -66,10 +64,10 @@ export default function SidePanel({ game, onAction }: Props) {
             </span>
           </div>
         )}
-        {game.gemPrice !== null && (
+        {game.gemsKg > 0 && (
           <div className="location-line">
-            <span className="k">宝石单价</span>
-            <span>{game.gemPrice} 元/kg（进矿锁定）</span>
+            <span className="k">宝石</span>
+            <span>{game.gemsKg} kg（返城后鉴定单价）</span>
           </div>
         )}
       </div>
@@ -77,18 +75,34 @@ export default function SidePanel({ game, onAction }: Props) {
       <div className="panel">
         <h3 className="panel-title">可执行行动</h3>
         {actions.length === 0 && <p className="modal-desc">沿蓝色虚线轨迹返回城市。</p>}
-        {actions.map((a) => (
-          <button
-            key={`${a.action.type}-${a.action.item ?? ''}`}
-            className={`action-btn ${a.action.type === 'MINE' || a.action.type === 'START_RETURN' ? 'primary' : ''}`}
-            disabled={a.disabled}
-            onClick={() => onAction(a.action)}
-          >
-            {a.label}
-            {a.hint && <span className="hint">{a.hint}</span>}
-            {a.disabled && a.disabledReason && <span className="hint warn-text">{a.disabledReason}</span>}
-          </button>
-        ))}
+        {actions.flatMap((a, ai) => {
+          // 需要帐篷的行动：多顶帐篷时逐顶展开，由玩家选择使用哪一顶
+          if (a.needsTent && !a.disabled && game.tents.length > 1) {
+            return game.tents.map((dur, ti) => (
+              <button
+                key={`${a.action.type}-${a.action.item ?? ''}-t${ti}`}
+                className={`action-btn ${a.action.type === 'MINE' || a.action.type === 'START_RETURN' ? 'primary' : ''}`}
+                onClick={() => onAction({ ...a.action, tentIndex: ti })}
+              >
+                {a.label} · 用 Tent {String.fromCharCode(65 + ti)}（{dur}/3）
+                {a.hint && <span className="hint">{a.hint}</span>}
+              </button>
+            ));
+          }
+          const needsAutoTent = a.needsTent && !a.disabled && game.tents.length === 1;
+          return [
+            <button
+              key={`${a.action.type}-${a.action.item ?? ''}-${ai}`}
+              className={`action-btn ${a.action.type === 'MINE' || a.action.type === 'START_RETURN' ? 'primary' : ''}`}
+              disabled={a.disabled}
+              onClick={() => onAction(needsAutoTent ? { ...a.action, tentIndex: 0 } : a.action)}
+            >
+              {a.label}
+              {a.hint && <span className="hint">{a.hint}</span>}
+              {a.disabled && a.disabledReason && <span className="hint warn-text">{a.disabledReason}</span>}
+            </button>,
+          ];
+        })}
         {game.phase === 'MINING' && (
           <p className="modal-desc" style={{ marginTop: 10 }}>
             矿区安全无天气。多挖一天多 2kg 宝石，但返程的时间与风险由你自己承担。

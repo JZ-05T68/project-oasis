@@ -9,8 +9,10 @@ interface Props {
 const DEFEAT_TEXT: Record<string, string> = {
   TIMEOUT: '时间耗尽——最大旅程天数用尽的时刻到来时，你已经永远留在了荒野之中。',
   STAMINA_EXHAUSTED: '耐力耗尽——你和商队倒在离绿洲很远的地方。',
-  RETURN_ROUTE_SEVERED: '返程路线中断——去程与返程的足迹封死了所有归途。',
+  RETURN_ROUTE_SEVERED: '返程路线已被切断——当前已经不存在符合"去程与返程不得重复普通格"规则的返城路线。',
   TRAPPED: '进退无路——四周都是你自己留下的脚印。',
+  NO_LEGAL_ROUTE: '远征路线已被切断——以当前足迹，已经不存在任何合法完成旅程的路线。',
+  INSUFFICIENT_TIME: '无法按时完成远征——根据当前剩余时间与已经使用的路线，本局已经无法在时限内合法完成旅程。',
 };
 
 export default function Settlement({ game, onRestart }: Props) {
@@ -69,7 +71,7 @@ export default function Settlement({ game, onRestart }: Props) {
               )}
               {v.gemPrice !== null && (
                 <tr>
-                  <td className="k">宝石单价（进矿锁定）</td>
+                  <td className="k">最终鉴定单价</td>
                   <td className="v">{v.gemPrice} 元/kg</td>
                 </tr>
               )}

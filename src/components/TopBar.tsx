@@ -8,7 +8,7 @@ const PHASE_NAMES: Record<GameState['phase'], string> = {
   FINISHED: '结束',
 };
 
-export default function TopBar({ game }: { game: GameState }) {
+export default function TopBar({ game, onOpenRules }: { game: GameState; onOpenRules?: () => void }) {
   return (
     <div className="topbar">
       <div className="stat">
@@ -50,6 +50,11 @@ export default function TopBar({ game }: { game: GameState }) {
         <span className="value">{game.seed}</span>
       </div>
       <div className="phase-badge">{PHASE_NAMES[game.phase]}</div>
+      {onOpenRules && (
+        <button type="button" className="btn rules-btn" onClick={onOpenRules}>
+          规则
+        </button>
+      )}
     </div>
   );
 }
