@@ -34,9 +34,19 @@ const TERRAIN_NAMES: Record<TerrainType, string> = {
   MINE: '矿区',
 };
 
-/** v0.1.2：CSS Grid 格子地图 */
+/**
+ * v0.1.2：CSS Grid 格子地图。
+ *
+ * v0.1.2b 布局修复：地图尺寸不再有任何固定值 / 旧 10×12 遗留值。
+ *  - 列数、行数全部从 gameConfig.map 派生（game.map.rows / game.map.cols）；
+ *  - 格子用 aspect-ratio 1/1 保持接近正方形；
+ *  - 地图宽度 = min(容器宽度, 可用高度 × 列数 / 行数)，因此整张地图永远完整可见，
+ *    并在自己的主游戏区域内水平居中（右侧日志宽度变化不会牵动地图中心）；
+ *  - 原来 min-width:420px（12 列 × 34px 的硬编码）是左侧留白/偏移的根因，已彻底移除。
+ */
 export default function MapView({ game, onMove }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { rows, cols } = game.map;
   const known = (id: TileId) => isTerrainKnown(game, id);
   const legal =
     game.status === 'ONGOING' && game.pendingEvents.length === 0
@@ -65,10 +75,20 @@ export default function MapView({ game, onMove }: Props) {
       <h3 className="panel-title">
         地图 · {game.map.rows}×{game.map.cols}（左下城市 · 右侧双矿）
       </h3>
-      <div className="grid-scroll" ref={scrollRef}>
+      <div className="grid-scroll" ref={scrollRef} data-testid="map-scroll">
         <div
           className="grid-map"
-          style={{ gridTemplateColumns: `repeat(${game.map.cols}, minmax(30px, 1fr))` }}
+          data-testid="map-grid"
+          data-rows={rows}
+          data-cols={cols}
+          style={{
+            gridTemplateColumns: `repeat(${cols}, minmax(30px, 1fr))`,
+            // 宽度 = min(容器宽, (可用高度 - 安全余量) × 列数/行数)：
+            // 8 行只有 7 个行间隙、9 列有 8 个列间隙，加上 padding 后行方向会多出
+            // 约 0.7px；再算上容器 1px 边框，留 8px 余量即可保证整图完整可见、
+            // 不触发纵向滚动条（滚动条会让地图中心偏移半个滚动条宽度）。
+            width: `min(100%, calc((var(--map-max-h, 620px) - 8px) * ${cols} / ${rows}))`,
+          }}
           role="grid"
           aria-label="游戏地图"
         >

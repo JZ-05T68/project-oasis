@@ -137,10 +137,30 @@ button {
   background: var(--green);
 }
 
-/* ---------- 格子地图（v0.1.2） ---------- */
+/* ---------- 格子地图（v0.1.2 / v0.1.2b 8×9 重排版） ---------- */
+
+/*
+ * 左侧黑边的真实原因（Human Playtest Fix Round 1 排查结论）：
+ * 地图容器沿用了旧 10×12 布局的**固定尺寸**——
+ *   .grid-map { min-width: 420px }（= 12 列 × 34px 最小格宽 + 间隙，硬编码）
+ *   .grid-scroll { max-height: 62vh }（固定高度）
+ *   .grid-tile 的 min-width/min-height 也是按 12 列时代定的 34px
+ * 地图缩到 9 列后这些数值不再成立，容器不再随实际行列变化，于是出现偏移/留白。
+ * 本轮不再保留任何固定尺寸：宽度由「可用高度 × 列数/行数」与容器宽度共同决定，
+ * 行列数一律从 gameConfig.map 派生（见 MapView），地图在主游戏区内水平居中。
+ */
 
 .grid-scroll {
-  max-height: min(70vh, 620px);
+  /*
+   * 地图可用高度上限（同时是滚动上限）：地图按此高度换算宽度，整图永远完整可见。
+   * 地图可用高度（--map-max-h）是**内容区**高度；容器自身有 1px 边框，
+   * 而 max-height 作用在 border-box 上，所以这里 +2px 才等价：
+   *   clientHeight = (--map-max-h + 2) - 2 = --map-max-h
+   * 不这么写会多出 2px 溢出 → 容器出现纵向滚动条 → 可视宽少 15px →
+   * 地图中心相对面板中心偏移 7.5px（就是「地图看着不居中」的来源）。
+   */
+  --map-max-h: min(68vh, 620px);
+  max-height: calc(var(--map-max-h) + 2px);
   overflow: auto;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
@@ -151,8 +171,9 @@ button {
   display: grid;
   gap: 2px;
   padding: 4px;
-  min-width: 300px;
-  max-width: 560px;
+  /* 无固定尺寸：width 由 MapView 按实际行列内联给出（见组件注释） */
+  min-width: 0;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -171,8 +192,8 @@ button {
   align-items: center;
   justify-content: center;
   cursor: default;
-  min-width: 34px;
-  min-height: 34px;
+  min-width: 30px;
+  min-height: 30px;
 }
 
 .grid-tile.unknown {
@@ -416,10 +437,13 @@ button {
   scrollbar-width: thin;
 }
 
-.modal-body.is-overflowing {
-  /* 内容溢出的视觉暗示：底部渐隐 */
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%);
-}
+/*
+ * v0.1.2b（追加）：这里原先还有一条 .modal-body.is-overflowing 的底部渐隐
+ * （mask-image: linear-gradient(to bottom, transparent 18px)）。
+ * 它会**淡化**滚动区底部的按钮文字，在真人试玩里被看成"文字被截断/看不全"。
+ * 现在只保留明确的「↓ 下方还有选项」滚动提示条（它永远不会盖住文字），
+ * 不再对文字本身做任何淡化或裁剪。
+ */
 
 /* 内容溢出时的显式滚动提示（可点击翻页） */
 .modal-scroll-hint {
@@ -478,7 +502,8 @@ button {
 
 .tent-choice {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
+  /* 名称列给固定上限，按钮区可收缩到 0（靠换行而不是裁切来适应窄屏） */
+  grid-template-columns: minmax(56px, max-content) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   background: var(--bg-panel-2);
@@ -494,6 +519,9 @@ button {
   font-weight: 700;
   color: var(--gold);
   line-height: 1.25;
+  /* 名称本身也不允许被裁切 */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tent-choice-name em {
@@ -507,11 +535,39 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
+}
+
+/*
+ * 沙尘暴 / 暴雨的装备选择按钮：文案必须**完整可读**。
+ *
+ * 真人试玩确认的问题：按钮关键文字出现截断 / 看不全。这里用一组"不可能裁切"的约束挡住：
+ *  - flex-basis 160px + wrap：装得下就并排、装不下就自己换到下一行，绝不横向挤压；
+ *  - min-width: 0 允许收缩，配合 white-space: normal + overflow-wrap: anywhere，
+ *    空间不足时**换行**（按钮变高），而不是裁切或省略；
+ *  - text-overflow: clip / overflow: visible：明确禁止省略号式隐藏；
+ *  - height: auto / max-height: none：禁止固定高度把第二行截掉。
+ * 同时按钮内文字与它触发的 Action 完全同源（见 EventModal / SidePanel）。
+ */
+.tent-choice-btns .btn,
+.modal-actions .btn {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
+  line-height: 1.35;
+  text-align: left;
 }
 
 .tent-choice-btns .btn {
-  flex: 1 1 auto;
-  white-space: normal;
+  /* 装不下就整块换行，而不是把文字挤没 */
+  flex: 1 1 160px;
 }
 
 .tent-choice-head {
@@ -531,27 +587,43 @@ button {
   margin-top: 4px;
 }
 
-/* 预报九宫格 */
+/* ---------- 预报九宫格（局部天气地图：按真实方位排列） ---------- */
+
 .forecast-grid9 {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* 固定 3×3：卡片用 grid-row / grid-column 显式定位，空位保持为空 */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, auto);
   gap: 6px;
 }
 
 .forecast-cell {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
-  padding: 8px;
+  padding: 8px 6px;
   text-align: center;
   font-size: 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.forecast-cell .fc-dir {
+  color: var(--gold);
+  font-size: 11px;
+  letter-spacing: 1px;
 }
 
 .forecast-cell.is-current {
   border-color: var(--gold);
+}
+
+.forecast-cell.is-current .fc-dir {
+  color: var(--gold);
+  font-weight: 700;
 }
 
 .forecast-cell.is-unknown {
@@ -694,6 +766,18 @@ button {
   border-color: var(--gold);
 }
 
+/* disabled 仍然完整可读（只降低对比度，不做任何文字裁切/隐藏） */
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn.gold:disabled {
+  opacity: 0.5;
+  filter: grayscale(0.35);
+  cursor: not-allowed;
+}
+
 .btn.gold {
   background: var(--gold);
   border-color: var(--gold);
@@ -814,4 +898,92 @@ button {
 .rules-content ul {
   margin: 4px 0 8px 20px;
   line-height: 1.65;
+}
+
+/* ---------- 统一结果反馈弹窗（v0.1.2b Human Playtest Fix Round 1） ---------- */
+
+.result-outcome {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.result-outcome.lose {
+  background: #3a1f1b;
+  color: #f0a99b;
+  border: 1px solid var(--red);
+}
+
+.result-outcome.win {
+  background: #33290f;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+}
+
+.result-changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.result-change {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+  font-size: 13px;
+}
+
+.result-change .rc-label {
+  color: var(--text-dim);
+}
+
+.result-change .rc-flow {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.result-change .rc-arrow {
+  color: var(--text-dim);
+  margin: 0 6px;
+}
+
+.result-change.is-down .rc-after {
+  color: var(--red);
+}
+
+.result-change.is-up .rc-after {
+  color: var(--green);
+}
+
+.result-change.is-flat .rc-after {
+  color: var(--text);
+}
+
+.result-nochange {
+  margin: 0;
+}
+
+.result-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+.result-remaining {
+  color: var(--text-dim);
+  font-size: 12px;
 }

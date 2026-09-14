@@ -52,7 +52,8 @@
       const b = byTextOne('button', '购买帐篷');
       if (!b || b.disabled) break;
       b.click();
-      await sleep(120);
+      await sleep(160);
+      await O.clearResults(); // 每笔购买都会即时反馈
     }
     const tentBtn = byTextOne('button', '购买帐篷');
     if (tentBtn && tentBtn.disabled) {
@@ -64,18 +65,32 @@
 
     /* ---------- 天气预报 ---------- */
     await auditClick('天气 · 购买天气预报包（最大天数 -1）', byTextOne('button', '购买天气预报包'), 'CHANGE', {
-      note: '→ 自动弹出预报 Modal',
+      note: '→ 先给结算结果，再弹预报 Modal',
+      keepResult: true,
     });
+    const fcRes = O.resultInfo();
+    assert(
+      '天气 · 购买预报先给出即时反馈（最大天数 42→41 / 预报次数 0→2）',
+      !!fcRes &&
+        fcRes.changes.some((c) => c.label === '最大旅程天数' && c.after === '41') &&
+        fcRes.changes.some((c) => c.label === '天气预报次数' && c.after === '2'),
+      fcRes ? fcRes.title + ' · ' + JSON.stringify(fcRes.changes) : '没有结果弹窗',
+    );
+    await O.confirmResult();
+    await sleep(320);
     assert('预报 Modal 自动弹出', O.modalKind() === 'FORECAST', String(O.modalKind()));
     await auditClick('天气 · 预报 Modal 的 × 关闭', $('.modal-close'), 'CHANGE', { note: '× 关闭' });
 
-    const useBtn = byTextOne('button', '使用天气预报');
-    await auditClick('天气 · 使用储存的预报', useBtn, 'CHANGE', { note: '再次弹出预报' });
-    assert('使用预报后弹出 Modal', O.modalKind() === 'FORECAST');
+    const useForecast = () => byTextOne('button', '使用天气预报');
+    await auditClick('天气 · 使用储存的预报', useForecast, 'CHANGE', { note: '再次弹出预报' });
+    await sleep(320);
+    assert('使用预报后弹出 Modal', O.modalKind() === 'FORECAST', String(O.modalKind()));
     await auditClick('天气 · 预报 Modal 的 Footer 关闭', byTextOne('.modal-footer .btn', '关闭'), 'CHANGE', {
       note: 'Footer 关闭',
     });
-    await auditClick('天气 · 再次使用预报', useBtn, 'CHANGE');
+    await sleep(200);
+    await auditClick('天气 · 再次使用预报', useForecast, 'CHANGE');
+    await sleep(320);
     let escOk = false;
     if (O.modalKind() === 'FORECAST') {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -83,11 +98,12 @@
       escOk = O.modalKind() !== 'FORECAST';
     }
     assert('天气 · Esc 键关闭预报 Modal', escOk);
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 5; k++) {
       const u = byTextOne('button', '使用天气预报');
       if (!u || u.disabled) break;
       u.click();
-      await sleep(200);
+      await sleep(240);
+      await O.clearResults(); // 使用预报也会即时反馈
       const cl = $('.modal-close');
       if (cl) {
         cl.click();
@@ -160,7 +176,22 @@
     await O.clearModals();
 
     /* ---------- 矿区 ---------- */
-    await auditClick('矿区 · 挖矿（+2kg）', byTextOne('button', '挖矿'), 'CHANGE', { note: '宝石 +2kg' });
+    await auditClick('矿区 · 挖矿（+2kg）', byTextOne('button', '挖矿'), 'CHANGE', { note: '宝石 +2kg', keepResult: true });
+    const mineInfo = O.resultInfo();
+    assert(
+      '矿区 · 挖矿结果即时反馈（宝石 0 kg → 2 kg）',
+      !!mineInfo && mineInfo.changes.some((c) => c.label === '宝石' && c.before === '0 kg' && c.after === '2 kg'),
+      mineInfo ? mineInfo.title + ' · ' + JSON.stringify(mineInfo.changes) : '没有结果弹窗',
+    );
+    assert(
+      '矿区 · 挖矿同一事件也写入右下角日志（双记录）',
+      $$('.log-list li')
+        .map((li) => txt(li))
+        .join(' | ')
+        .indexOf('宝石') >= 0,
+    );
+    await O.clearResults();
+
     await auditClick('矿区 · 连续挖矿（第 2 次）', byTextOne('button', '挖矿'), 'CHANGE', { note: '宝石 +2kg' });
     assert('连续挖矿累计 4kg', /4 kg/.test(txt($('.topbar'))), txt($('.topbar')));
 

@@ -70,10 +70,34 @@ export const gameConfig = {
     MINE: { SUNNY: 1 },
   } as Record<string, Record<string, number>>,
 
-  /* ---------- 天气效果 ---------- */
-  heatStaminaCost: 1,
-  sandstormStaminaCost: 1,
-  rainstormStaminaCost: 1,
+  /* ---------- 天气效果（v0.1.2b：集中管理，真人试玩调参只改这里） ---------- */
+  /**
+   * 天气数值全部收进这里，禁止把数值散落在引擎/UI 里硬编码。
+   * 后续真人试玩如果要调（例如把草地暴雨退回 -1 或再改其它值），只动这一块。
+   */
+  weather: {
+    /** 沙漠高温（HEAT）：硬扛耐力损失 */
+    heat: {
+      staminaCost: 1,
+    },
+    /** 沙尘暴（SANDSTORM）：没有帐篷硬扛时的耐力损失 */
+    sandstorm: {
+      staminaCost: 1,
+    },
+    /** 草地暴雨（RAINSTORM） */
+    grassRain: {
+      /**
+       * 不使用帐篷硬扛暴雨：耐力损失。
+       *
+       * Human Playtest Fix Round 1 暂定试玩值 = 2（原值 1）。
+       * 这是「本轮试玩参数」，不代表最终永久数值：
+       * 下一轮真人试玩可能保持 -2、改回 -1，或再作其他调整——改这个字段即可。
+       */
+      staminaLossWithoutTent: 2,
+      /** 使用帐篷避雨：无论剩余耐久（3/3、2/3、1/3）整顶立即报废；耐力不减少 */
+      destroysTentOnUse: true,
+    },
+  },
 
   /* ---------- 遭遇（v0.1.2a：按格预生成，基础概率 35%） ---------- */
   encounter: {

@@ -17,9 +17,13 @@ interface ShellProps {
   onClose?: () => void;
   children: React.ReactNode;
   wide?: boolean;
+  /** 自定义 Footer（传了就不再渲染默认的「关闭」按钮），例如统一结果弹窗的「确定」 */
+  footer?: React.ReactNode;
+  /** 供浏览器审计定位的 data-testid */
+  testId?: string;
 }
 
-export function ModalShell({ title, onClose, children, wide }: ShellProps) {
+export function ModalShell({ title, onClose, children, wide, footer, testId }: ShellProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [overflowing, setOverflowing] = useState(false);
   const [atBottom, setAtBottom] = useState(false);
@@ -66,7 +70,12 @@ export function ModalShell({ title, onClose, children, wide }: ShellProps) {
 
   return (
     <div className="modal-backdrop">
-      <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-label={title}>
+      <div
+        className={`modal ${wide ? 'modal-wide' : ''}`}
+        role="dialog"
+        aria-label={title}
+        data-testid={testId}
+      >
         <div className="modal-header">
           <h3>{title}</h3>
           {onClose && (
@@ -90,13 +99,15 @@ export function ModalShell({ title, onClose, children, wide }: ShellProps) {
             ↓ 下方还有选项，点击或滚动查看
           </button>
         )}
-        {onClose && (
-          <div className="modal-footer">
-            <button type="button" className="btn" onClick={onClose}>
-              关闭
-            </button>
-          </div>
-        )}
+        {footer
+          ? <div className="modal-footer">{footer}</div>
+          : onClose && (
+              <div className="modal-footer">
+                <button type="button" className="btn" onClick={onClose}>
+                  关闭
+                </button>
+              </div>
+            )}
       </div>
     </div>
   );
@@ -175,8 +186,9 @@ export default function EventModal({ game, onChoice }: Props) {
       return (
         <ModalShell title="草原暴雨！">
           <p className="modal-desc">
-            倾盆大雨浇在草原上。帐篷可以保住体力——但暴雨会把你选中的那顶帐篷
-            <b>整顶报废</b>（无论剩余多少耐久）。
+            倾盆大雨浇在草原上。帐篷可以保住体力（<b>耐力不减</b>）——但暴雨会把你选中的那顶帐篷
+            <b>整顶报废</b>（无论剩余多少耐久）。不用帐篷硬扛则要付出
+            <b> {gameConfig.weather.grassRain.staminaLossWithoutTent} 点耐力</b>；耐力归零远征立即失败。
           </p>
           {game.tents.length > 0 && (
             <div className="tent-choice-list">
@@ -204,7 +216,8 @@ export default function EventModal({ game, onChoice }: Props) {
           )}
           <div className="modal-actions">
             <button type="button" className="btn" onClick={() => choice({ kind: 'RAINSTORM', useTent: false })}>
-              {game.tents.length > 0 ? '不用帐篷（耐力 -1）' : '冒雨硬扛（耐力 -1）'}
+              {game.tents.length > 0 ? '不用帐篷（' : '冒雨硬扛（'}
+              耐力 -{gameConfig.weather.grassRain.staminaLossWithoutTent}）
             </button>
           </div>
         </ModalShell>
@@ -264,32 +277,76 @@ export default function EventModal({ game, onChoice }: Props) {
   }
 }
 
-/** 天气预报结果展示（单日：当前格 + 8 邻域） */
+/** 天气预报结果展示：局部 3×3 天气地图（当前格 + 8 邻域） */
 export function ForecastModal({ game, onClose }: { game: GameState; onClose: () => void }) {
   const view = game.lastForecast!;
+  /**
+   * 关键：卡片位置只由 (dr, dc) 决定，绝不使用数组顺序。
+   *
+   * 地图边缘会把越界的方向裁剪掉（例如左下角只有 N / NE / C / E），
+   * 若按数组顺序塞进 3 列网格，剩余卡片会自动向前补位，方向就全错了。
+   * 这里用一个固定 3×3 网格 + 显式 grid-row / grid-column 定位：
+   * 越界方向直接不渲染元素，空出来的行列保持为空，相对方位永远正确。
+   */
+  const at = new Map<string, (typeof view.cells)[number]>();
+  for (const c of view.cells) at.set(`${c.dr},${c.dc}`, c);
+  const slots: Array<{ dr: number; dc: number; name: string }> = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      slots.push({ dr, dc, name: DIRECTION_NAMES[`${dr},${dc}`] });
+    }
+  }
+
   return (
-    <ModalShell title={`天气预报 · 第 ${view.day} 天`} onClose={onClose} wide>
+    <ModalShell title={`天气预报 · 第 ${view.day} 天`} onClose={onClose} wide testId="forecast-modal">
       <p className="modal-desc">
-        当前格与周围一圈（最多 9 格）的明天天气。未知地形的格子仍会显示天气（这本身就是情报），
-        但不会永久揭示地形。
+        当前格与周围一圈的明天天气，按<b>真实地图方位</b>排布（左上=西北、正下=南）。
+        地图边缘不存在的方向会留空，不会把其它格子挪过来。未知地形的格子仍会显示天气
+        （这本身就是情报），但不会永久揭示地形。
       </p>
-      <div className="forecast-grid9">
-        {view.cells.map((c) => (
-          <div
-            key={c.tileId}
-            className={`forecast-cell ${c.isCurrent ? 'is-current' : ''} ${c.terrainKnown ? '' : 'is-unknown'}`}
-          >
-            <div className="fc-coord">
-              ({c.row},{c.col}){c.isCurrent ? ' · 当前' : ''}
+      <div className="forecast-grid9" data-testid="forecast-grid" role="grid" aria-label="局部天气地图">
+        {slots.map(({ dr, dc, name }) => {
+          const c = at.get(`${dr},${dc}`);
+          // 越界方向：此位置不放任何元素（不留占位卡片，避免任何补位可能）
+          if (!c) return null;
+          return (
+            <div
+              key={c.tileId}
+              data-testid={`forecast-cell-${dr}${dc}`}
+              data-dr={dr}
+              data-dc={dc}
+              data-tileid={c.tileId}
+              data-dir={name}
+              className={`forecast-cell ${c.isCurrent ? 'is-current' : ''} ${c.terrainKnown ? '' : 'is-unknown'}`}
+              style={{ gridRow: dr + 2, gridColumn: dc + 2 }}
+              role="gridcell"
+            >
+              <div className="fc-dir">{name}</div>
+              <div className="fc-coord">
+                ({c.row},{c.col}){c.isCurrent ? ' · 当前' : ''}
+              </div>
+              <div className="fc-terrain">{c.terrainKnown ? terrainName(game, c.tileId) : '未知'}</div>
+              <div className={`wtag w-${c.weather.toLowerCase()}`}>{weatherNames[c.weather]}</div>
             </div>
-            <div className="fc-terrain">{c.terrainKnown ? terrainName(game, c.tileId) : '未知'}</div>
-            <div className={`wtag w-${c.weather.toLowerCase()}`}>{weatherNames[c.weather]}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </ModalShell>
   );
 }
+
+/** 3×3 局部方位的可读名称 */
+const DIRECTION_NAMES: Record<string, string> = {
+  '-1,-1': '西北',
+  '-1,0': '北',
+  '-1,1': '东北',
+  '0,-1': '西',
+  '0,0': '当前格',
+  '0,1': '东',
+  '1,-1': '西南',
+  '1,0': '南',
+  '1,1': '东南',
+};
 
 function terrainName(game: GameState, tileId: string): string {
   const t = game.map.tiles[tileId];

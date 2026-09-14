@@ -11,13 +11,21 @@ interface Entry {
   skipped?: string;
 }
 
-const SCENES = ['menu', 'storm', 'rain', 'oasis', 'oasisdry'];
+const SCENES = ['menu', 'storm', 'rain', 'oasis', 'oasisdry', 'feedback', 'forecast', 'layout', 'stormlabels', 'stormlabels2'];
 const lines: string[] = [];
-lines.push('# 浏览器逐按钮点击审计（v0.1.2b Human Playtest Fix Round 1）');
+lines.push('# 浏览器逐按钮点击审计（v0.1.2b · Human Playtest Fix Round 1 + 两项追加修复）');
 lines.push('');
 lines.push('驱动：`scripts/run-browser-audit.sh`（agent-browser + 真实 Chromium，真实点击）。');
 lines.push('审计对每个控件做：存在性 / disabled / 0 尺寸 / 指针命中（elementFromPoint）/');
 lines.push('是否需要滚动才可达 / 真实点击后状态指纹是否按预期变化。');
+lines.push('');
+lines.push('追加修复的两项专项覆盖：');
+lines.push('');
+lines.push('- `forecast`：天气预报必须按真实地图方位排列（9 类位置：内部 / 四边 / 四角），');
+lines.push('  断言卡片按 (dr,dc) 落在 3×3 固定格位、越界方向留空不补位、当前格居中、不泄漏迷雾；');
+lines.push('- `stormlabels` / `stormlabels2`：沙尘暴装备按钮文案完整性，');
+lines.push('  在 1366×768 / 1920×1080 / 窄窗口 / 640 极窄，以及 90%、100%、110% 缩放下逐视口测量；');
+lines.push('  含 4 顶帐篷（A 3/3、B 3/3、C 2/3、D 1/3）与「没有指南针」的禁用态。');
 lines.push('');
 
 let totalAll = 0;
@@ -30,24 +38,39 @@ for (const scene of SCENES) {
     continue;
   }
   const log = readFileSync(logPath, 'utf-8');
-  const head = (log.match(/=== scene=\S+ viewport=\S+ url=\S+ ===/) || [''])[0];
-  const m = log.match(/--- AUDIT DETAIL ---\r?\n(.*)\r?\n/);
+  const head = (log.match(/=== scene=\S+[^\n]*===/) || [''])[0];
+  // AUDIT DETAIL 可能是多行（例如 forecast 场景每个案例一局、每局一行 JSON），逐行解析后合并
+  const block = (log.match(/--- AUDIT DETAIL ---\r?\n([\s\S]*?)\r?\n--- CONSOLE ERRORS ---/) || [])[1];
+  if (!block) {
+    lines.push('## ' + scene);
+    lines.push('');
+    lines.push('```');
+    lines.push(head);
+    lines.push('```');
+    lines.push('');
+    lines.push('（未捕获到审计明细，请看 ' + logPath + '）');
+    lines.push('');
+    continue;
+  }
+  let arr: Entry[] = [];
+  for (const line of block.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const parsed = JSON.parse(JSON.parse(t));
+      if (Array.isArray(parsed)) arr = arr.concat(parsed as Entry[]);
+    } catch {
+      // 非 JSON 行（runner 的进度输出）忽略
+    }
+  }
   lines.push('## ' + scene);
   lines.push('');
   lines.push('```');
   lines.push(head);
   lines.push('```');
   lines.push('');
-  if (!m) {
-    lines.push('（未捕获到审计明细，请看 ' + logPath + '）');
-    lines.push('');
-    continue;
-  }
-  let arr: Entry[] = [];
-  try {
-    arr = JSON.parse(JSON.parse(m[1]));
-  } catch {
-    lines.push('（审计明细解析失败）');
+  if (arr.length === 0) {
+    lines.push('（审计明细解析失败，请看 ' + logPath + '）');
     lines.push('');
     continue;
   }
@@ -66,7 +89,12 @@ for (const scene of SCENES) {
   }
   lines.push('');
   const errs = (log.match(/--- CONSOLE ERRORS ---\r?\n([\s\S]*)$/) || [])[1]?.trim() || '';
-  lines.push('控制台错误：' + (errs && errs !== '(no errors)' ? '```' + errs + '```' : '无'));
+  const realErrs = errs
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && l !== '✗' && l !== '(no errors)' && l !== '✓ Done')
+    .join('\n');
+  lines.push('控制台错误：' + (realErrs ? '```' + realErrs + '```' : '无'));
   lines.push('');
 }
 

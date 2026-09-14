@@ -111,6 +111,64 @@ export interface LogEntry {
 }
 
 /* ------------------------------------------------------------------ */
+/* 即时反馈（v0.1.2b：关键资源变化必须在结算后立即显式告知玩家）              */
+/* ------------------------------------------------------------------ */
+
+/** 会被即时反馈追踪的资源键 */
+export type ResourceKey =
+  | 'day'
+  | 'maxDays'
+  | 'stamina'
+  | 'cash'
+  | 'gemsKg'
+  | 'compass'
+  | 'forecast'
+  | 'tent';
+
+/**
+ * 一条资源变化（一律以「变化前 → 变化后」表达）。
+ * 由引擎在结算时自动对比快照生成，UI 只需原样渲染，不再自己推算差值。
+ */
+export interface ResourceChange {
+  key: ResourceKey;
+  /** 展示名，例如「耐力」「Tent C」「最大旅程天数」 */
+  label: string;
+  /** 变化前的可读值，例如 "5/5"、"3/3"、"第 12 天" */
+  before: string;
+  /** 变化后的可读值，例如 "3/5"、"报废"、"第 13 天" */
+  after: string;
+  /** 变差 / 变好 / 无变化 */
+  direction: 'up' | 'down' | 'flat';
+}
+
+/**
+ * 一次事件结算的综合结果（统一 ResultModal 的数据源）。
+ *
+ * 关键设计：
+ * - 引擎负责把一次结算里**所有**资源变化合并成一个 EventResult（不会为同一事件连弹三个弹窗）；
+ * - 同一事件既写入 `pendingResults`（即时反馈）也写入 `log`（历史记录），两边同源，不会只留日志；
+ * - 正常移动（没有任何资源变化）不产生 EventResult，因此不会变成「弹窗模拟器」。
+ */
+export interface EventResult {
+  /** 结算时刻的天数（用于日志对齐） */
+  day: number;
+  title: string;
+  /** 发生了什么（自然语言） */
+  message: string;
+  changes: ResourceChange[];
+  kind: LogEntry['kind'];
+  /**
+   * 同一事件在右下角历史日志里的那条记录（与弹窗同源双写）。
+   * 有了它就能机器校验「即时反馈 + 历史日志」两边都确实记录了。
+   */
+  history: { day: number; text: string; kind: LogEntry['kind'] };
+  /** 该次结算导致对局结束时的结果；未结束为 null */
+  outcome: GameStatus | null;
+  /** outcome === 'DEFEAT' 时的明确失败原因 */
+  defeatReason: DefeatReason | null;
+}
+
+/* ------------------------------------------------------------------ */
 /* 事件（Modal）                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -161,6 +219,15 @@ export interface ForecastCell {
   tileId: TileId;
   row: number;
   col: number;
+  /**
+   * 相对玩家当前位置的行偏移（-1 / 0 / +1）。
+   * UI 必须用 (dr, dc) 决定卡片在 3×3 局部格中的位置——
+   * 不能用数组顺序：地图边缘裁剪掉越界格后，按顺序排列会让卡片"自动补位"，
+   * 导致视觉方向与真实地图方向不一致（真人试玩已确认的问题）。
+   */
+  dr: number;
+  /** 相对玩家当前位置的列偏移（-1 / 0 / +1） */
+  dc: number;
   /** 是否为玩家当前格 */
   isCurrent: boolean;
   /** 地形是否已揭示（未知格只显示坐标与天气，不揭示地形） */
@@ -308,6 +375,11 @@ export interface GameState {
 
   /** 待处理事件队列（Modal） */
   pendingEvents: PendingEvent[];
+  /**
+   * 待展示的结算结果队列（统一 ResultModal）。
+   * 与 `log` 同源双写：一次事件发生后既在这里排队弹窗，也已写入历史日志。
+   */
+  pendingResults: EventResult[];
   /** 最近一次天气预报视图（购买自动使用 / 手动使用时设置；天数推进后失效） */
   lastForecast: ForecastView | null;
 

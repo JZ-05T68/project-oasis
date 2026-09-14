@@ -136,10 +136,24 @@
           compBefore + ' → ' + compAfter,
         );
         assert('  安全通过：沙尘暴本身不扣耐力', stAfter === stBefore, stBefore + ' → ' + stAfter);
+        // v0.1.2b 即时反馈：帐篷 + 指南针合并在同一个结果弹窗里
+        // （队列按事件顺序，可能先有「野外宿营完成」，所以在整个队列里找「沙尘暴结算」）
+        const infos = await O.collectResults(4);
+        const res = infos.filter((r) => r.title === '沙尘暴结算')[0];
+        assert(
+          '沙尘暴 · 帐篷耐久与指南针变化合成同一个结果弹窗',
+          !!res &&
+            res.changes.some((c) => c.label === 'Tent ' + want) &&
+            res.changes.some((c) => c.label === '指南针'),
+          res
+            ? res.title + ' · 变化=' + res.changes.map((c) => c.label).join(',')
+            : '队列里没有「沙尘暴结算」：' + infos.map((i) => i.title).join(','),
+        );
         continue;
       }
       if (kind === 'RAINSTORM') {
         await O.resolveWeatherModal();
+        await O.clearResults();
         continue;
       }
       const camp = pickCampButton();
@@ -149,6 +163,7 @@
       }
       camp.click();
       await sleep(340);
+      await O.clearResults();
     }
     assert('沙尘暴专项：Tent D / C / B / A 全部被逐一点中', used.join(',') === 'D,C,B,A', '实际顺序=' + used.join(','));
     pass('沙尘暴专项：四顶帐篷都只消耗被选中的那一顶', '结束时帐篷=' + O.tentsState());

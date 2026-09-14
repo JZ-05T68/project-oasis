@@ -9,7 +9,9 @@ import type {
   ForecastView,
   GameAction,
   GameState,
+  GameStatus,
   LogEntry,
+  ResourceChange,
   TentId,
   TentItem,
   TileId,
@@ -42,7 +44,12 @@ function clone(state: GameState): GameState {
 }
 
 function pushLog(state: GameState, kind: LogEntry['kind'], text: string): void {
-  state.log.push({ day: state.daysUsed, kind, text });
+  pushLogAt(state, state.daysUsed, kind, text);
+}
+
+/** 指定天数的日志写入（结算日志用「事件发生的当天」更贴近玩家直觉） */
+function pushLogAt(state: GameState, day: number, kind: LogEntry['kind'], text: string): void {
+  state.log.push({ day, kind, text });
   if (state.log.length > gameConfig.logLimit) {
     state.log.splice(0, state.log.length - gameConfig.logLimit);
   }
@@ -54,6 +61,133 @@ function makeEventId(state: GameState, kind: string, tileId: TileId | null): str
 
 function enqueue(state: GameState, event: GameState['pendingEvents'][number]): void {
   state.pendingEvents.push(event);
+}
+
+/* ------------------------------------------------------------------ */
+/* 即时反馈：资源快照 → 变化前/变化后 → 统一结算结果                        */
+/* 见 types/index.ts 的 EventResult / ResourceChange 说明。              */
+/* ------------------------------------------------------------------ */
+
+interface ResourceSnapshot {
+  day: number;
+  maxDays: number;
+  stamina: number;
+  cash: number;
+  gemsKg: number;
+  compasses: number;
+  forecastCharges: number;
+  tents: Map<TentId, number>;
+}
+
+function snapshot(s: GameState): ResourceSnapshot {
+  return {
+    day: s.daysUsed,
+    maxDays: s.maxDays,
+    stamina: s.stamina,
+    cash: s.cash,
+    gemsKg: s.gemsKg,
+    compasses: s.compasses,
+    forecastCharges: s.forecastCharges,
+    tents: new Map(s.tents.map((t) => [t.id, t.charges])),
+  };
+}
+
+const staminaText = (v: number): string => `${v}/${gameConfig.maxStamina}`;
+const tentChargesText = (v: number): string => `${v}/${gameConfig.tentDesertCharges}`;
+const dayText = (v: number): string => `第 ${v} 天`;
+const dir = (d: number): ResourceChange['direction'] => (d > 0 ? 'up' : d < 0 ? 'down' : 'flat');
+
+/** 对比快照，产出「变化前 → 变化后」列表（一次性覆盖本次结算的全部资源变化） */
+function diffSnapshot(before: ResourceSnapshot, after: ResourceSnapshot): ResourceChange[] {
+  const out: ResourceChange[] = [];
+
+  // 帐篷：报废 / 耐久变化 / 新获得（逐顶对齐稳定 ID，不按数组下标）
+  for (const [id, ch] of before.tents) {
+    if (!after.tents.has(id)) {
+      out.push({ key: 'tent', label: tentName(id), before: tentChargesText(ch), after: '报废', direction: 'down' });
+    } else if (after.tents.get(id) !== ch) {
+      const nv = after.tents.get(id)!;
+      out.push({ key: 'tent', label: tentName(id), before: tentChargesText(ch), after: tentChargesText(nv), direction: dir(nv - ch) });
+    }
+  }
+  for (const [id, ch] of after.tents) {
+    if (!before.tents.has(id)) {
+      out.push({ key: 'tent', label: `${tentName(id)}（新）`, before: '无', after: tentChargesText(ch), direction: 'up' });
+    }
+  }
+
+  if (after.stamina !== before.stamina) {
+    out.push({ key: 'stamina', label: '耐力', before: staminaText(before.stamina), after: staminaText(after.stamina), direction: dir(after.stamina - before.stamina) });
+  }
+  if (after.cash !== before.cash) {
+    out.push({ key: 'cash', label: '金钱', before: `¥${before.cash}`, after: `¥${after.cash}`, direction: dir(after.cash - before.cash) });
+  }
+  if (after.gemsKg !== before.gemsKg) {
+    out.push({ key: 'gemsKg', label: '宝石', before: `${before.gemsKg} kg`, after: `${after.gemsKg} kg`, direction: dir(after.gemsKg - before.gemsKg) });
+  }
+  if (after.compasses !== before.compasses) {
+    out.push({ key: 'compass', label: '指南针', before: String(before.compasses), after: String(after.compasses), direction: dir(after.compasses - before.compasses) });
+  }
+  if (after.forecastCharges !== before.forecastCharges) {
+    out.push({ key: 'forecast', label: '天气预报次数', before: String(before.forecastCharges), after: String(after.forecastCharges), direction: dir(after.forecastCharges - before.forecastCharges) });
+  }
+  if (after.maxDays !== before.maxDays) {
+    out.push({ key: 'maxDays', label: '最大旅程天数', before: String(before.maxDays), after: String(after.maxDays), direction: dir(after.maxDays - before.maxDays) });
+  }
+  if (after.day !== before.day) {
+    out.push({ key: 'day', label: '天数', before: dayText(before.day), after: dayText(after.day), direction: 'flat' });
+  }
+  return out;
+}
+
+/**
+ * 结算 + 即时反馈（唯一入口）。
+ *
+ * 同一处完成三件事，保证三者永不脱节：
+ *  1. 执行结算逻辑（`mutate`）；
+ *  2. 把本次**全部**资源变化合并成 **一个** EventResult 推入 `pendingResults`
+ *     （同一次事件绝不会连弹三个弹窗）；
+ *  3. 把同一事件写入历史日志（右下角日志继续保留，绝不只剩弹窗）。
+ *
+ * `force`：本次结算确实发生了玩家必须知道的结果、但没有数值变化
+ * （例如获得地形情报、市集折扣），仍然需要告知玩家。
+ *
+ * 无资源变化且未 `force` 时只写日志、不弹窗 —— 这是「不要做成弹窗模拟器」的开关。
+ */
+function recordResult(
+  s: GameState,
+  meta: { title: string; message: string; kind: LogEntry['kind']; force?: boolean; logText?: string },
+  mutate?: () => void,
+): void {
+  const before = snapshot(s);
+  const logDay = s.daysUsed;
+  if (mutate) mutate();
+  const changes = diffSnapshot(before, snapshot(s));
+  // 历史日志：与弹窗同源写入（Result Feedback + History Log 双记录）
+  const logText = meta.logText ?? meta.message;
+  pushLogAt(s, logDay, meta.kind, logText);
+  const history = { day: logDay, text: logText, kind: meta.kind };
+  const onlyDay = changes.length === 1 && changes[0].key === 'day';
+  if ((changes.length === 0 || onlyDay) && !meta.force) return;
+  const outcome: GameStatus | null = s.status === 'ONGOING' ? null : s.status;
+  s.pendingResults.push({
+    day: s.daysUsed,
+    title: meta.title,
+    message: meta.message,
+    changes,
+    kind: meta.kind,
+    history,
+    outcome,
+    defeatReason: s.defeatReason,
+  });
+}
+
+/** UI 消费掉队首的结算结果（纯函数，状态仍只由引擎产生） */
+export function dismissPendingResult(state: GameState): GameState {
+  if (state.pendingResults.length === 0) return state;
+  const s = clone(state);
+  s.pendingResults.shift();
+  return s;
 }
 
 /** 发放一顶全新帐篷（ID 单调递增、绝不复用），返回该帐篷 */
@@ -148,6 +282,7 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
     triggeredEncounters: [],
     oasisRestUsed: {},
     pendingEvents: [],
+    pendingResults: [],
     lastForecast: null,
     visitDiscount: false,
     stats: { forecastPacks: 0, outboundDays: null, miningDays: 0, returnStartDay: null },
@@ -289,32 +424,84 @@ function enterMine(s: GameState): void {
 /* 天气 / 遭遇结算（到达或停留的当天）                                     */
 /* ------------------------------------------------------------------ */
 
-function resolveTileWeather(s: GameState, tileId: TileId, day: number): void {
+function resolveTileWeather(s: GameState, tileId: TileId, day: number, emit = true): void {
   const w = getWeatherForDay(s, tileId, day);
   const terrain = s.map.tiles[tileId].terrain;
 
   if (terrain === 'DESERT') {
     if (w === 'SANDSTORM') {
+      // 沙尘暴需要玩家先做选择：这里只报「发生了什么」，结算结果由选择后产生
       pushLog(s, 'bad', '沙尘暴骤起，天地一片昏黄！');
       enqueue(s, { id: makeEventId(s, 'SANDSTORM', tileId), kind: 'SANDSTORM', tileId });
     } else if (w === 'HEAT') {
-      pushLog(s, 'bad', `烈日炙烤（高温）：耐力 -${gameConfig.heatStaminaCost}。`);
-      applyStaminaLoss(s, gameConfig.heatStaminaCost);
+      const cost = gameConfig.weather.heat.staminaCost;
+      if (!emit) {
+        pushLog(s, 'bad', `烈日炙烤（高温）：耐力 -${cost}。`);
+        applyStaminaLoss(s, cost);
+      } else {
+        recordResult(
+          s,
+          {
+            title: '沙漠高温',
+            message: `烈日把沙子烤得发烫，硬走一天的代价是 ${cost} 点耐力。`,
+            kind: 'bad',
+            logText: `烈日炙烤（高温）：耐力 -${cost}。`,
+          },
+          () => {
+            applyStaminaLoss(s, cost);
+          },
+        );
+      }
     }
     return;
   }
   if (terrain === 'GRASS') {
     if (w === 'RAINSTORM') {
       if (s.tents.length > 0) {
+        // 有帐篷 → 由玩家决定用哪一顶（或硬扛）；结算结果在事件解决时产生
         pushLog(s, 'bad', '草原暴雨倾盆而下！');
         enqueue(s, { id: makeEventId(s, 'RAINSTORM', tileId), kind: 'RAINSTORM', tileId });
       } else {
-        pushLog(s, 'bad', `暴雨倾盆而你无帐可依：耐力 -${gameConfig.rainstormStaminaCost}。`);
-        applyStaminaLoss(s, gameConfig.rainstormStaminaCost);
+        const cost = gameConfig.weather.grassRain.staminaLossWithoutTent;
+        if (!emit) {
+          pushLog(s, 'bad', `暴雨倾盆而你无帐可依：耐力 -${cost}。`);
+          applyStaminaLoss(s, cost);
+        } else {
+          recordResult(
+            s,
+            {
+              title: '暴雨结算',
+              message: '暴雨倾盆而下，而你无帐可依。你在雨中狼狈前行，体力受到严重消耗。',
+              kind: 'bad',
+              logText: `暴雨倾盆而你无帐可依：耐力 -${cost}。`,
+            },
+            () => {
+              applyStaminaLoss(s, cost);
+            },
+          );
+        }
       }
     } else if (w === 'MUD') {
-      pushLog(s, 'bad', '陷入泥沼，挣扎出来白白耗掉了一整天。');
-      addDays(s, 1);
+      // 泥沼属于天气伤害（白白耗掉一整天）
+      if (!emit) {
+        pushLog(s, 'bad', '陷入泥沼，挣扎出来白白耗掉了一整天。');
+        addDays(s, 1);
+      } else {
+        recordResult(
+          s,
+          {
+            title: '陷入泥沼',
+            message: '你陷进了泥沼，费力挣扎出来时，一整天已经过去了。',
+            kind: 'bad',
+            logText: '陷入泥沼，挣扎出来白白耗掉了一整天。',
+            // 泥沼属于天气伤害：唯一的变化是「天数」，但仍然需要明确告诉玩家
+            force: true,
+          },
+          () => {
+            addDays(s, 1);
+          },
+        );
+      }
     }
     return;
   }
@@ -355,9 +542,19 @@ function resolveArrivalEncounter(s: GameState, tileId: TileId): void {
           const t = s.map.tiles[id];
           return `(${t.row},${t.col})${terrainBadge(t.terrain)}`;
         });
-        pushLog(s, 'good', `路遇牧民，热心指点了周边地形：${names.join('、')}。`);
+        recordResult(s, {
+          title: '路遇牧民',
+          message: `热心的牧民指点了周边地形：${names.join('、')}。`,
+          kind: 'good',
+          force: true,
+        });
       } else {
-        pushLog(s, 'info', '路遇牧民，但周边地形你都已了然。');
+        recordResult(s, {
+          title: '路遇牧民',
+          message: '你遇到了牧民，但周边地形你都已了然。',
+          kind: 'info',
+          force: true,
+        });
       }
       break;
     }
@@ -566,10 +763,20 @@ export function performAction(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'MINE': {
       if (s.phase !== 'MINING') throw new GameError('NOT_MINING', '只有在矿区入口才能挖矿');
-      if (!addDays(s, 1)) return s;
-      s.stats.miningDays += 1;
-      s.gemsKg += gameConfig.gemPerMiningDay;
-      pushLog(s, 'good', `第 ${s.daysUsed} 天：在矿脉中劳作一整天，收获 ${gameConfig.gemPerMiningDay}kg 宝石（累计 ${s.gemsKg}kg）。`);
+      recordResult(
+        s,
+        {
+          title: '挖矿收获',
+          message: `你在矿脉中劳作一整天，敲下 ${gameConfig.gemPerMiningDay}kg 宝石。`,
+          kind: 'good',
+          logText: `在矿脉中劳作一整天，收获 ${gameConfig.gemPerMiningDay}kg 宝石。`,
+        },
+        () => {
+          if (!addDays(s, 1)) return;
+          s.stats.miningDays += 1;
+          s.gemsKg += gameConfig.gemPerMiningDay;
+        },
+      );
       finalizeTurn(s);
       return s;
     }
@@ -591,11 +798,21 @@ export function performAction(state: GameState, action: GameAction): GameState {
       if (s.stamina >= gameConfig.maxStamina) throw new GameError('STAMINA_FULL', '耐力已满');
       // v0.1.2a：修整需要正常宿营——必须消耗一顶指定帐篷的 1 点耐久
       const tentId = assertCampTent(s, action.tentId, '绿洲修整');
-      if (!addDays(s, 1)) return s;
-      s.tents = consumeTentCharge(s.tents, tentId);
-      s.oasisRestUsed[s.position] = true;
-      s.stamina = Math.min(gameConfig.maxStamina, s.stamina + 1);
-      pushLog(s, 'good', `在绿洲修整一天（宿营消耗 ${tentName(tentId)} 1 点耐久），耐力恢复至 ${s.stamina}/${gameConfig.maxStamina}。`);
+      recordResult(
+        s,
+        {
+          title: '绿洲修整完成',
+          message: '你在绿洲边扎营休整，喝饱了水，体力恢复了一些。',
+          kind: 'good',
+          logText: `在绿洲修整一天（宿营消耗 ${tentName(tentId)} 1 点耐久）。`,
+        },
+        () => {
+          if (!addDays(s, 1)) return;
+          s.tents = consumeTentCharge(s.tents, tentId);
+          s.oasisRestUsed[s.position] = true;
+          s.stamina = Math.min(gameConfig.maxStamina, s.stamina + 1);
+        },
+      );
       finalizeTurn(s);
       return s;
     }
@@ -614,15 +831,25 @@ export function performAction(state: GameState, action: GameAction): GameState {
             ? gameConfig.marketDiscountCompassPrice
             : gameConfig.compassPrice;
       if (s.cash < price) throw new GameError('NO_CASH', '现金不足');
-      s.cash -= price;
-      s.equipmentSpent += price;
-      if (action.item === 'tent') {
-        const tent = mintTent(s);
-        pushLog(s, 'info', `购买了一顶帐篷（-${price} 元，${discount ? '市集八折' : '原价'}）。${tentName(tent.id)} 入列，现有 ${s.tents.length} 顶。`);
-      } else {
-        s.compasses += 1;
-        pushLog(s, 'info', `购买了一只指南针（-${price} 元，${discount ? '市集八折' : '原价'}）。现有 ${s.compasses} 只。`);
-      }
+      const itemName = action.item === 'tent' ? '一顶帐篷' : '一只指南针';
+      recordResult(
+        s,
+        {
+          title: '购买完成',
+          message: `你买下了${itemName}${discount ? '（市集八折）' : ''}。`,
+          kind: 'info',
+          logText: `购买${itemName}（-${price} 元，${discount ? '市集八折' : '原价'}）。`,
+        },
+        () => {
+          s.cash -= price;
+          s.equipmentSpent += price;
+          if (action.item === 'tent') {
+            mintTent(s);
+          } else {
+            s.compasses += 1;
+          }
+        },
+      );
       return s; // 购买不消耗时间
     }
     case 'BUY_FORECAST_PACK': {
@@ -634,25 +861,45 @@ export function performAction(state: GameState, action: GameAction): GameState {
           '无法购买天气预报：此次购买会导致剩余时间不足以完成旅程。',
         );
       }
-      s.maxDays -= 1;
-      s.stats.forecastPacks += 1;
-      s.forecastCharges += gameConfig.forecast.chargesPerPack;
-      pushLog(s, 'info', `购买天气预报包（最大旅程天数降至 ${s.maxDays}），获得 ${gameConfig.forecast.chargesPerPack} 次。`);
+      const pack = gameConfig.forecast.chargesPerPack;
+      const auto = gameConfig.forecast.autoUseOnPurchase;
+      recordResult(
+        s,
+        {
+          title: '天气预报已购买',
+          message: `用 1 天旅程上限换来 ${pack} 次天气观测，并立即自动用掉 ${auto} 次。`,
+          kind: 'good',
+          logText: `购买天气预报包（最大旅程天数降至 ${s.maxDays - 1}），获得 ${pack} 次并自动使用 ${auto} 次。`,
+        },
+        () => {
+          s.maxDays -= 1;
+          s.stats.forecastPacks += 1;
+          s.forecastCharges += pack;
+          s.forecastCharges -= auto;
+          s.lastForecast = buildForecastView(s);
+        },
+      );
       if (s.daysUsed > s.maxDays) {
         defeat(s, 'TIMEOUT', `最大旅程天数已降至 ${s.maxDays}，而你已经走了 ${s.daysUsed} 天……`);
         return s;
       }
-      // 立即自动使用 1 次
-      s.forecastCharges -= 1;
-      s.lastForecast = buildForecastView(s);
-      pushLog(s, 'good', `观测完成：明天（第 ${s.daysUsed + 1} 天）当前格与邻域的天气已记录（剩余 ${s.forecastCharges} 次）。`);
       return s; // 成本已通过 maxDays 支付，不消耗当天
     }
     case 'USE_FORECAST': {
       if (s.forecastCharges <= 0) throw new GameError('NO_FORECAST', '没有剩余预报次数');
-      s.forecastCharges -= 1;
-      s.lastForecast = buildForecastView(s);
-      pushLog(s, 'good', `观测完成：明天（第 ${s.daysUsed + 1} 天）当前格与邻域的天气已记录（剩余 ${s.forecastCharges} 次）。`);
+      recordResult(
+        s,
+        {
+          title: '天气预报已使用',
+          message: '观测完成：明天当前格与邻域的天气已经记录下来了。',
+          kind: 'info',
+          logText: `观测完成：明天（第 ${s.daysUsed + 1} 天）当前格与邻域的天气已记录。`,
+        },
+        () => {
+          s.forecastCharges -= 1;
+          s.lastForecast = buildForecastView(s);
+        },
+      );
       return s; // 成本已在购买时支付
     }
     case 'WAIT': {
@@ -663,15 +910,37 @@ export function performAction(state: GameState, action: GameAction): GameState {
       // v0.1.2a：城市/村庄为安全住宿点（免费）；野外/矿区/绿洲宿营必须消耗帐篷
       if (terrain !== 'CITY' && terrain !== 'VILLAGE') {
         const tentId = assertCampTent(s, action.tentId, '野外宿营');
-        s.tents = consumeTentCharge(s.tents, tentId);
-        if (!addDays(s, 1)) return s;
-        pushLog(s, 'info', `第 ${s.daysUsed} 天：原地宿营一天（${tentName(tentId)} 耐久 -1，剩 ${s.tents.length} 顶）。天气：${weatherNames[getWeatherForDay(s, s.position, s.daysUsed)]}。`);
+        recordResult(
+          s,
+          {
+            title: '野外宿营完成',
+            message: `你在野外扎营过夜，${tentName(tentId)} 替你挡了一夜风沙。`,
+            kind: 'info',
+            logText: `原地宿营一天（${tentName(tentId)} 耐久 -1）。当天天气：${weatherNames[getWeatherForDay(s, s.position, s.daysUsed + 1)]}。`,
+          },
+          () => {
+            s.tents = consumeTentCharge(s.tents, tentId);
+            if (!addDays(s, 1)) return;
+            // 停留日的天气仍正常结算（不触发遭遇、不刷新探索、不自动恢复）；
+            // 其结果并入本次宿营的综合结果，不再单独弹第二个弹窗。
+            resolveTileWeather(s, s.position, s.daysUsed, false);
+          },
+        );
       } else {
-        if (!addDays(s, 1)) return s;
-        pushLog(s, 'info', `第 ${s.daysUsed} 天：在${terrain === 'CITY' ? '城市' : '村庄'}安心停留一天（无需帐篷）。`);
+        // 安全地点停留只推进时间，没有其它资源变化 → 不打扰玩家（只更新 HUD 与日志）
+        recordResult(
+          s,
+          {
+            title: '原地停留',
+            message: `你在${terrain === 'CITY' ? '城市' : '村庄'}安心停留了一天。`,
+            kind: 'info',
+            logText: `在${terrain === 'CITY' ? '城市' : '村庄'}安心停留一天（无需帐篷）。`,
+          },
+          () => {
+            addDays(s, 1);
+          },
+        );
       }
-      // 停留日的天气仍正常结算（不触发遭遇、不刷新探索、不自动恢复）
-      resolveTileWeather(s, s.position, s.daysUsed);
       if (s.status === 'ONGOING' && s.pendingEvents.length === 0) {
         finalizeTurn(s);
       }
@@ -702,7 +971,27 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
       if (useTent && s.tents.length === 0) throw new GameError('NO_TENT', '没有帐篷');
       if (useCompass && s.compasses === 0) throw new GameError('NO_COMPASS', '没有指南针');
       if (useTent) assertCampTent(s, tentId, '沙尘暴');
-      applySandstorm(s, useTent, useCompass, tentId);
+      const message = useTent
+        ? useCompass
+          ? `${tentName(tentId!)} 挡住了狂沙，指南针指明了方向——你和商队安全穿过了风暴。`
+          : `${tentName(tentId!)} 挡住了狂风，但在昏黄的风沙里迷失了方向，白白多走一天。`
+        : useCompass
+          ? '没有帐篷遮蔽，你眯着眼靠指南针辨认方向，硬扛着穿过了风沙。'
+          : '无帐无针，你和商队在沙暴里狼狈挣扎，还彻底迷了路。';
+      recordResult(
+        s,
+        {
+          title: '沙尘暴结算',
+          message,
+          kind: useTent ? 'info' : 'bad',
+          logText: useTent
+            ? `${tentName(tentId!)} 挡住沙暴（耐久 -1）${useCompass ? '，指南针指明方向。' : '，但迷失方向额外损失 1 天。'}`
+            : `没有帐篷遮蔽${useCompass ? '，靠指南针辨认方向' : '，且迷失方向额外损失 1 天'}。`,
+        },
+        () => {
+          applySandstorm(s, useTent, useCompass, tentId);
+        },
+      );
       break;
     }
     case 'RAINSTORM': {
@@ -710,11 +999,32 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
       if (choice.useTent) {
         if (s.tents.length === 0) throw new GameError('NO_TENT', '没有帐篷');
         const tentId = assertCampTent(s, choice.tentId, '暴雨');
-        s.tents = consumeTentForRainstorm(s.tents, tentId);
-        pushLog(s, 'bad', `${tentName(tentId)} 替你硬扛暴雨。虽然保住了体力，但帐篷已被整体淋湿报废（剩 ${s.tents.length} 顶）。`);
+        recordResult(
+          s,
+          {
+            title: '暴雨结算',
+            message: `你钻进 ${tentName(tentId)} 躲过了暴雨。体力没受影响，但这顶帐篷已经被彻底淋透，再也用不了了。`,
+            kind: 'bad',
+            logText: `${tentName(tentId)} 替你硬扛暴雨：帐篷整体报废，体力无损。`,
+          },
+          () => {
+            s.tents = consumeTentForRainstorm(s.tents, tentId);
+          },
+        );
       } else {
-        pushLog(s, 'bad', `你冒雨赶路：耐力 -${gameConfig.rainstormStaminaCost}。`);
-        if (!applyStaminaLoss(s, gameConfig.rainstormStaminaCost)) return s;
+        const cost = gameConfig.weather.grassRain.staminaLossWithoutTent;
+        recordResult(
+          s,
+          {
+            title: '暴雨结算',
+            message: '你在暴雨中狼狈前行，体力受到严重消耗。',
+            kind: 'bad',
+            logText: `你冒雨赶路：耐力 -${cost}。`,
+          },
+          () => {
+            applyStaminaLoss(s, cost);
+          },
+        );
       }
       break;
     }
@@ -722,45 +1032,96 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
       if (choice.kind !== 'CARAVAN') throw new GameError('BAD_CHOICE', '选择类型不匹配');
       if (choice.action === 'BUY_TENT') {
         if (s.cash < gameConfig.caravanTentPrice) throw new GameError('NO_CASH', '现金不足，无法购买二手帐篷');
-        s.cash -= gameConfig.caravanTentPrice;
-        s.equipmentSpent += gameConfig.caravanTentPrice;
-        const tent = mintTent(s, gameConfig.caravanTentCharges);
-        pushLog(s, 'info', `从商队购入一顶二手帐篷（-${gameConfig.caravanTentPrice} 元）。${tentName(tent.id)} 入列，现有 ${s.tents.length} 顶。`);
+        recordResult(
+          s,
+          {
+            title: '商队交易完成',
+            message: `你用 ${gameConfig.caravanTentPrice} 元从商队换来一顶二手帐篷。`,
+            kind: 'info',
+            logText: `从商队购入一顶二手帐篷（-${gameConfig.caravanTentPrice} 元）。`,
+          },
+          () => {
+            s.cash -= gameConfig.caravanTentPrice;
+            s.equipmentSpent += gameConfig.caravanTentPrice;
+            mintTent(s, gameConfig.caravanTentCharges);
+          },
+        );
       } else {
         const revealed = revealIntelAround(s, current.tileId);
-        if (revealed.length > 0) {
-          const names = revealed.map((id) => {
-            const t = s.map.tiles[id];
-            return `(${t.row},${t.col})${terrainBadge(t.terrain)}`;
-          });
-          pushLog(s, 'good', `商队头人摊开地图为你指点周边：${names.join('、')}。`);
-        } else {
-          pushLog(s, 'info', '商队告诉你：周边的地形你都已经知道了。');
-        }
+        const names = revealed.map((id) => {
+          const t = s.map.tiles[id];
+          return `(${t.row},${t.col})${terrainBadge(t.terrain)}`;
+        });
+        recordResult(s, {
+          title: '商队情报',
+          message:
+            revealed.length > 0
+              ? `商队头人摊开地图，为你指点周边地形：${names.join('、')}。`
+              : '商队告诉你：周边的地形你都已经知道了。',
+          kind: revealed.length > 0 ? 'good' : 'info',
+          force: true,
+        });
       }
       break;
     }
     case 'THIEF': {
       if (choice.kind !== 'THIEF') throw new GameError('BAD_CHOICE', '选择类型不匹配');
       if (choice.action === 'GIVE_UP') {
-        s.cash -= current.stolen;
-        pushLog(s, 'bad', `你放弃了追逐，损失 ${current.stolen} 元。剩余 ${s.cash} 元。`);
+        recordResult(
+          s,
+          {
+            title: '盗贼夜袭',
+            message: `你放弃了追逐，被抢走的 ${current.stolen} 元再也拿不回来了。`,
+            kind: 'bad',
+            logText: `放弃追逐，被抢走 ${current.stolen} 元。`,
+          },
+          () => {
+            s.cash -= current.stolen;
+          },
+        );
       } else {
-        pushLog(s, 'info', '你追了出去……');
-        if (!addDays(s, 1)) return s;
-        pushLog(s, 'good', `追回成功！被偷的 ${current.stolen} 元分文不少地回到了口袋（耗时 1 天）。`);
+        recordResult(
+          s,
+          {
+            title: '追回成功',
+            message: `你追了出去，被偷的 ${current.stolen} 元分文不少地回到了口袋——代价是整整一天。`,
+            kind: 'good',
+            logText: `追回被偷的 ${current.stolen} 元（耗时 1 天）。`,
+            // 唯一变化是「天数」，但这是玩家主动选择的结果，必须明确反馈
+            force: true,
+          },
+          () => {
+            addDays(s, 1);
+          },
+        );
       }
       break;
     }
     case 'MARKET': {
       if (choice.kind !== 'MARKET') throw new GameError('BAD_CHOICE', '选择类型不匹配');
       if (choice.action === 'TAKE_DISCOUNT') {
-        s.visitDiscount = true;
-        pushLog(s, 'good', '你取得了市集商家的信任：本次停留期间帐篷 320 元、指南针 80 元。');
+        recordResult(s, {
+          title: '市集折扣到手',
+          message: `你取得了市集商家的信任：本次停留期间帐篷 ${gameConfig.marketDiscountTentPrice} 元、指南针 ${gameConfig.marketDiscountCompassPrice} 元。`,
+          kind: 'good',
+          force: true,
+        }, () => {
+          s.visitDiscount = true;
+        });
       } else {
-        if (!addDays(s, 1)) return s;
-        s.cash += gameConfig.workPay;
-        pushLog(s, 'good', `在市集帮工一整天，赚得 ${gameConfig.workPay} 元（现金 ${s.cash} 元）。`);
+        recordResult(
+          s,
+          {
+            title: '市集打工',
+            message: `你在市集帮工一整天，赚得 ${gameConfig.workPay} 元。`,
+            kind: 'good',
+            logText: `在市集帮工一整天，赚得 ${gameConfig.workPay} 元。`,
+          },
+          () => {
+            if (!addDays(s, 1)) return;
+            s.cash += gameConfig.workPay;
+          },
+        );
       }
       break;
     }
@@ -774,24 +1135,21 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
   return s;
 }
 
+/** 沙尘暴结算（纯状态变更；通知文本由 recordResult 统一生成，日志与弹窗同源） */
 function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean, tentId?: TentId): void {
   if (useTent) {
     s.tents = consumeTentCharge(s.tents, tentId);
     if (useCompass) {
       s.compasses -= 1;
-      pushLog(s, 'info', `${tentName(tentId!)} 挡住沙暴（耐久 -1，剩 ${s.tents.length} 顶），指南针指明方向（剩 ${s.compasses} 只）。体力无损，继续前行。`);
     } else {
-      pushLog(s, 'bad', `${tentName(tentId!)} 挡住了风沙（耐久 -1，剩 ${s.tents.length} 顶），但在昏黄的风中迷失了方向：额外损失 1 天。`);
       addDays(s, 1);
     }
   } else {
     if (useCompass) {
       s.compasses -= 1;
-      pushLog(s, 'bad', `没有帐篷遮蔽，你顶着风沙辨认方向：耐力 -${gameConfig.sandstormStaminaCost}，指南针 -1（剩 ${s.compasses} 只）。`);
-      applyStaminaLoss(s, gameConfig.sandstormStaminaCost);
+      applyStaminaLoss(s, gameConfig.weather.sandstorm.staminaCost);
     } else {
-      pushLog(s, 'bad', `无帐无针，你在沙暴中狼狈挣扎：耐力 -${gameConfig.sandstormStaminaCost}，且迷失方向：额外损失 1 天。`);
-      if (!applyStaminaLoss(s, gameConfig.sandstormStaminaCost)) return;
+      if (!applyStaminaLoss(s, gameConfig.weather.sandstorm.staminaCost)) return;
       addDays(s, 1);
     }
   }
@@ -801,6 +1159,19 @@ function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean, ten
 /* 天气预报视图（单日：当前格 + 8 邻域）                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 天气预报视图（单日：当前格与其 8 邻域 = 标准 3×3 局部天气地图）。
+ *
+ * 每格都带 `dr` / `dc`（相对玩家的行/列偏移，取值 -1 / 0 / +1），
+ * UI 依此把卡片放到固定的 3×3 位置：
+ *
+ *   (-1,-1) NW   (-1,0) N   (-1,+1) NE
+ *   ( 0,-1) W    ( 0,0) C   ( 0,+1) E
+ *   (+1,-1) SW   (+1,0) S   (+1,+1) SE
+ *
+ * 地图边界外的格子**直接不下发**（既不是 null 也不是占位），
+ * 因此 UI 不需要、也不允许做"自动补位"。
+ */
 export function buildForecastView(s: GameState): ForecastView {
   const day = s.daysUsed + 1;
   const { row, col } = parseTileId(s.position);
@@ -814,6 +1185,8 @@ export function buildForecastView(s: GameState): ForecastView {
         tileId: id,
         row: r,
         col: c,
+        dr: r - row,
+        dc: c - col,
         isCurrent: id === s.position,
         terrainKnown: isTerrainKnown(s, id),
         weather: getWeatherForDay(s, id, day),

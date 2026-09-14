@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { performMove, getLegalMoves, resolvePendingEvent } from '../src/game';
+import { performMove, getLegalMoves, resolvePendingEvent, gameConfig } from '../src/game';
 import { GameError } from '../src/game/types';
 import { newGame, calmOverrides, mutate, withWeather, nearestTileOf, pathTo, walk, mkTents, charges, TENT_A } from './helpers';
 
@@ -109,18 +109,19 @@ describe('草地暴雨：整顶帐篷的取舍', () => {
     expect(s2.stamina).toBe(5);
   });
 
-  it('不使用帐篷：耐力 -1，帐篷保留', () => {
+  it('不使用帐篷：耐力 -2（本轮试玩值），帐篷保留', () => {
     const { s } = rainScenario('rain-2', [3]);
     const ev = s.pendingEvents[0];
     const s2 = resolvePendingEvent(s, ev.id, { kind: 'RAINSTORM', useTent: false });
     expect(charges(s2.tents)).toEqual([3]);
-    expect(s2.stamina).toBe(4);
+    expect(s2.stamina).toBe(3);
+    expect(s2.stamina).toBe(s.stamina - gameConfig.weather.grassRain.staminaLossWithoutTent);
   });
 
-  it('没有帐篷：不弹出选择，直接耐力 -1', () => {
+  it('没有帐篷：不弹出选择，直接耐力 -2（本轮试玩值）', () => {
     const { s } = rainScenario('rain-3', []);
     expect(s.pendingEvents.filter((e) => e.kind === 'RAINSTORM')).toHaveLength(0);
-    expect(s.stamina).toBe(4);
+    expect(s.stamina).toBe(3);
   });
 
   it('暴雨耗尽最后耐力 → 立即失败', () => {

@@ -17,11 +17,13 @@ npm run dev       # 启动开发服务器（默认 http://localhost:5173）
 Windows 一键启动：双击 `START_PROJECT_OASIS.bat`（自动选择可用端口 + 自动打开浏览器）。
 
 ```bash
-npm test                       # 运行全部自动测试（Vitest）
+npm test                       # 运行全部自动测试（Vitest，246 条）
 npm run build                  # 类型检查 + 生产构建
 npm run sim -- --runs 3000     # 平衡仿真（多进程并行）
-npx tsx scripts/economy-calibrate.ts --runs 3000   # 宝石经济标定扫描
-bash scripts/run-browser-audit.sh                  # 浏览器逐按钮点击审计（需先启动 dev server）
+npx tsx scripts/economy-calibrate.ts --runs 1200 --workers 4   # 宝石经济标定扫描
+bash scripts/run-browser-audit.sh                  # 浏览器逐按钮点击审计（10 个场景，需先启动 dev server）
+bash scripts/run-browser-audit.sh forecast         # 单独跑天气预报方位（9 类位置）
+bash scripts/run-browser-audit.sh stormlabels      # 单独跑沙尘暴按钮文案完整性（多视口）
 ```
 
 ## 玩法概览
@@ -44,7 +46,8 @@ bash scripts/run-browser-audit.sh                  # 浏览器逐按钮点击审
 
 - Vite + React 19 + TypeScript（UI 层）
 - 纯 TypeScript 游戏引擎（与 UI 完全分离，全部逻辑可测试、可复现）
-- Vitest（190+ 条引擎/经济/仿真规则测试）
+- Vitest（246 条引擎/经济/仿真/规则回归测试）
+- 浏览器审计（agent-browser + 真实 Chromium，10 个场景 532 项控件检查）
 - 所有随机内容由局内 Seed 驱动：同 Seed + 同操作序列 = 完全相同的结果
 
 ## 目录结构

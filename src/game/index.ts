@@ -10,6 +10,7 @@ export {
   getAvailableActions,
   performAction,
   resolvePendingEvent,
+  dismissPendingResult,
   computeSettlement,
   getWeatherForDay,
   getCurrentWeather,

@@ -20,4 +20,5 @@ Thumbs.db
 
 # simulation temp
 reports/.tmp/
+reports/.econ-tmp/
 reports/smoke/

@@ -83,12 +83,27 @@
         delete expected[want];
         assert('暴雨 · Tent ' + want + ' 整顶报废（数量 -1）', sameTents(parseTents(after), expected), before + ' → ' + after);
         assert('暴雨 · 用帐篷不掉耐力', $$('.stamina-dot.on').length === stBefore, stBefore + ' → ' + $$('.stamina-dot.on').length);
+        // 队列按事件发生顺序：可能先有「野外宿营完成」，再有「暴雨结算」
+        const infos = await O.collectResults(4);
+        const res = infos.filter((r) => r.title === '暴雨结算')[0];
+        const destroyedRow = res && res.changes.filter((c) => c.label === 'Tent ' + want)[0];
+        assert(
+          '暴雨 · Tent ' + want + ' 报废被即时反馈（' + want + '/3 → 报废）',
+          !!destroyedRow && destroyedRow.after === '报废' && /\/3$/.test(destroyedRow.before),
+          res ? res.title + ' · ' + JSON.stringify(res.changes) : '队列里没有「暴雨结算」：' + infos.map((i) => i.title).join(','),
+        );
+        assert(
+          '暴雨 · 结果弹窗不含未变化的耐力行（耐力没变就不重复显示）',
+          !!res && !res.changes.some((c) => c.label === '耐力'),
+          res ? JSON.stringify(res.changes) : '队列里没有「暴雨结算」',
+        );
         destroyed.push(want);
         rains += 1;
         continue;
       }
       if (kind === 'SANDSTORM') {
         await O.resolveWeatherModal();
+        await O.clearResults();
         continue;
       }
       const camp = $$('.action-btn').filter((b) => txt(b).indexOf('原地宿营') >= 0 && !b.disabled)[0];
@@ -98,10 +113,11 @@
       }
       camp.click();
       await sleep(340);
+      await O.clearResults();
     }
     assert('暴雨专项：至少触发并完整处理 2 次草原暴雨', rains >= 2, '次数=' + rains + ' · 报废=' + destroyed.join(','));
 
-    // 不使用帐篷的路径：耐力 -1 且帐篷保留
+    // 不使用帐篷的路径：耐力 -2（Human Playtest Fix Round 1 试玩值）且帐篷保留
     await O.clearModals();
     for (let step = 0; step < 24; step += 1) {
       const kind = await O.clearModals();
@@ -111,27 +127,45 @@
           fail('暴雨 · 不用帐篷选项存在', '找不到「不用帐篷」按钮');
           break;
         }
+        assert('暴雨 · 不用帐篷按钮写明当前试玩值 -2', txt(skip).indexOf('耐力 -2') >= 0, txt(skip));
         const st = $$('.stamina-dot.on').length;
         const tentsBefore = O.tentsState(); // 必须在点击前取，中间宿营会消耗帐篷
         skip.click();
-        await sleep(400);
+        await sleep(420);
         const same = sameTents(parseTents(O.tentsState()), parseTents(tentsBefore));
         const stAfter2 = $$('.stamina-dot.on').length;
         assert(
-          '暴雨 · 选择不用帐篷：耐力 -1 且帐篷完全保留',
-          same && stAfter2 === st - 1,
+          '暴雨 · 选择不用帐篷：耐力 -2 且帐篷完全保留',
+          same && stAfter2 === st - 2,
           tentsBefore + ' → ' + O.tentsState() + ' · 耐力 ' + st + ' → ' + stAfter2,
         );
+        const infos = await O.collectResults(4);
+        const res = infos.filter((r) => r.title === '暴雨结算').pop();
+        assert(
+          '暴雨 · 不用帐篷弹出即时反馈结果（变化前 → 变化后）',
+          !!res &&
+            res.changes.some((c) => c.label === '耐力' && c.before === st + '/5' && c.after === stAfter2 + '/5'),
+          res
+            ? res.title + ' · ' + JSON.stringify(res.changes)
+            : '队列里没有「暴雨结算」：' + infos.map((i) => i.title).join(','),
+        );
+        // 同一事件必须同时写入右下角历史日志
+        const logTxt = $$('.log-list li')
+          .map((li) => txt(li))
+          .join(' | ');
+        assert('暴雨 · 同一事件也写入了右下角日志（双记录）', logTxt.indexOf('耐力 -2') >= 0, logTxt.slice(-160));
         break;
       }
       if (kind === 'SANDSTORM') {
         await O.resolveWeatherModal();
+        await O.clearResults();
         continue;
       }
       const camp = $$('.action-btn').filter((b) => txt(b).indexOf('原地宿营') >= 0 && !b.disabled)[0];
       if (!camp) break;
       camp.click();
       await sleep(340);
+      await O.clearResults();
     }
 
     R.rains = rains;

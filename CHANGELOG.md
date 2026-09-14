@@ -18,27 +18,65 @@
 - **提前判负误判**：`evaluateViability` / `hasLegalReturnPath` 的返程通行口径与 `getLegalMoves`
   对齐（当前矿区豁免、可穿透；只有另一座矿区禁行）。修正前会把「离开矿区后必须借道当前矿区绕行」
   的合法局面判死——8×9 小地图上这种局面很常见。
-- `StartScreen` 文案与规则页同步（旧文案仍写 10×12、开局显示矿价，与实际行为不符）。
+- **地图左侧黑边 / 不居中**：地图容器沿用了旧 10×12 布局的固定尺寸
+  （`.grid-map { min-width: 420px }` = 12 列 × 34px 的硬编码；`.grid-scroll { max-height: 62vh }`；
+  `.grid-tile` 的 34px 最小格宽）。缩到 9 列后这些数值不再成立。
+  现在尺寸全部从 `gameConfig.map` 派生，宽度 = `min(容器宽, (可用高度-8px) × 列数/行数)`，
+  容器高度 `calc(--map-max-h + 2px)` 抵消自身 1px 边框 —— 后者不修正会让地图高出 2px，
+  触发容器纵向滚动条，可视宽少 15px，地图中心相对面板中心偏移 7.5px（实测到的"看着不居中"）。
+- **天气预报卡片方位错乱（真人试玩追加确认）**：预报 Modal 原先按数组顺序把卡片塞进
+  3 列网格，地图边缘裁掉越界格后剩余卡片**自动向前补位**，视觉方向与真实地图方向不一致
+  （玩家在 (7,0) 时 `(7,1)` 被挤到第三行）。
+  修复：`ForecastCell` 新增 `dr`/`dc`（相对玩家的行列偏移），UI 用固定 3×3 网格 +
+  显式 `grid-row = dr+2` / `grid-column = dc+2` 定位，越界方向直接不渲染、留空不补位。
+- **沙尘暴装备按钮文字被截断（真人试玩追加确认）**：
+  装备选择按钮的完整文案（如「+ 指南针（安全通过）」）出现截断 / 看不全。
+  修复：按钮允许换行并按需变高（`flex: 1 1 160px` + `wrap` + `min-width: 0` +
+  `overflow-wrap: anywhere`），显式禁止 `text-overflow: ellipsis` 与固定高度裁切；
+  移除 `.modal-body.is-overflowing` 的底部文字渐隐（它会让最后一行看起来被截断），
+  只保留「↓ 下方还有选项」滚动提示条；`.btn:disabled` 改为降低对比度但仍完整可读。
+- `StartScreen` / `RulesContent` 文案与规则页同步（草地暴雨新数值、即时反馈说明）。
 
 ### Changed
 
 - **地图 10×12 → 8×9（72 格）**；城市 (7,0)；矿区限制在最右列 `row ∈ [0,5]`
   （禁止最下面两行 6/7）；最小行距 4 → 3（新行区间下的最小必要调整，保证 6 行都能被用到）。
+- **草地暴雨（RAINSTORM）不使用帐篷的耐力损失 1 → 2**（本轮真人试玩暂定值）。
+  数值集中在 `gameConfig.weather.grassRain.staminaLossWithoutTent`，不在任何地方散落硬编码；
+  使用帐篷仍为「整顶报废、耐力不减」，由玩家自选具体哪一顶。
 - **宝石经济重新标定**：`base 10 → 140`、下限 `80 → 140`，斜率 2.0 与上限 320 不变。
   难度 p10/中位/p90 → 172/221/267 元/kg，触底占比 39.5% → 1.75%。
 - `START_PROJECT_OASIS.bat` 改用 `%~dp0`（不依赖固定盘符），保留自动选端口 + 自动开浏览器。
 
 ### Added
 
+- **即时反馈（ResultModal）+ 资源变化双记录**：引擎新增 `pendingResults: EventResult[]`，
+  一次结算的全部资源变化由快照 diff 合成 **一个** 结果，一律以「变化前 → 变化后」呈现
+  （耐力 / 金钱 / 帐篷耐久·报废·新增 / 指南针 / 天气预报次数 / 最大旅程天数 / 宝石 / 天数）。
+  统一 `ResultModal` 组件渲染，支持「确定」/ × / Esc / Footer 关闭。
+  同一事件同时写入右下角历史日志（`EventResult.history` 与日志条目同源），
+  普通移动与安全地点停留不产生结果（避免做成"弹窗模拟器"）。
 - `tests/tentSelection.test.ts`：4 顶帐篷（A 3/3、B 2/3、C 1/3、D 3/3）在
   沙尘暴 / 暴雨 / 野外宿营 / 绿洲修整 / 矿区等待 5 个场景下逐顶点击的专项回归。
+- `tests/feedback.test.ts`：草地暴雨 -2 / 整顶报废 / 耐力归零判负（原因明确为耐力耗尽）、
+  资源变化结构（UI 可直接消费）、一次事件只弹一个综合结果、普通移动不弹窗、
+  结果队列 FIFO 语义，以及「整局每条即时反馈都能在日志里找到同源记录」的不变量。
+- `tests/forecast.test.ts` 新增「预报方位」套件：9 类位置（内部 / 四边 / 四角）
+  逐一断言 `(dr, dc)` 映射与 3×3 文本渲染结果，边界缺格必须**恰好**是越界方向
+  （用集合相等证明不存在补位），且 `dr+2` / `dc+2` 落位合法。
 - `tests/economy.test.ts`：价格只由客观难度决定（无刷价）、不合理玩法仍可亏损（无保底）、
   合理成功远征有明显正收益。
 - `scripts/economy-calibrate.ts` + `reports/economy-calibration.md`：宝石经济标定扫描
   （对局只跑一次，离线套用任意定价参数）。
 - `ReasonablePlayerBot` / `CautiousPlayerBot` / `WastefulBot`：经济标定与「乱花钱仍会亏」的对照。
-- `scripts/run-browser-audit.sh` + `scripts/e2e-audit-lib.js` + 5 个场景脚本：
-  浏览器逐按钮点击审计（指针命中测试 + 状态指纹），产出 `reports/audit/SUMMARY.md`。
+- `scripts/run-browser-audit.sh` + `scripts/e2e-audit-lib.js` + 10 个场景脚本：
+  浏览器逐按钮点击审计（指针命中测试 + 状态指纹），并新增
+  `feedback`（即时反馈 / 双记录 / 不过度弹窗）、`forecast`（预报方位 9 类位置）、
+  `layout`（8×9 排版 / 左黑边 / 居中 / 响应式）、`stormlabels` / `stormlabels2`
+  （装备按钮文案完整性：4 顶帐篷 3/3·3/3·2/3·1/3 + 无指南针禁用态）五个场景；
+  `layout` 与两个 `stormlabels*` 在多组视口与缩放（1366×768、1518×853、1242×698、
+  1920×1080、2133×1200、1745×982、1024×768、900×700、640×700，即 90%/100%/110%）
+  下逐项测量并断言。产出 `reports/audit/SUMMARY.md`。
 
 ## [0.1.1] - 2026-09-13 · Balance & Validation
 

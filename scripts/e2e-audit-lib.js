@@ -71,12 +71,15 @@
         : tb
           ? 'GAME'
           : '?';
+    var result = O.$('[data-testid="result-modal"]');
     return [
       screen,
       seedInput ? 'seed=' + seedInput.value : 'noseed',
       tb ? O.txt(tb) : '',
       modal ? 'M:' + O.txt(modal) : '',
       modal ? 'MB:' + O.$$('.modal-body button').length : '',
+      result ? 'RES:' + O.txt(O.$('.modal-header', result)) : 'nores',
+      result ? 'RESN:' + O.$$('[data-testid="result-changes"] li').length : '',
       O.$$('.grid-tile.clickable').length,
       O.$$('.action-btn').length,
       O.$$('.action-btn:not([disabled])').length,
@@ -143,7 +146,26 @@
           : typeof expect === 'function'
             ? !!expect(before, after)
             : changed;
-    var detail = (needScroll ? '[需滚动] ' : '') + (opts.note || '');
+    // v0.1.2b 即时反馈：状态变化会弹出统一结果弹窗，它会挡住后续按钮。
+    // 这里先把弹窗内容记入 detail，再确认关闭，保证审计流程连续；
+    // 需要专门断言弹窗内容的场景传 opts.keepResult = true 自行处理。
+    var res = O.resultInfo();
+    var resNote = res
+      ? ' | 结果弹窗「' +
+        res.title +
+        '」' +
+        (res.message ? '：' + res.message : '') +
+        (res.changes.length
+          ? ' ｜ 变化=' +
+            res.changes
+              .map(function (c) {
+                return c.label + ' ' + c.before + '→' + c.after;
+              })
+              .join('; ')
+          : '｜（无数值变化）')
+      : '';
+    if (res && !opts.keepResult) await O.confirmResult();
+    var detail = (needScroll ? '[需滚动] ' : '') + (opts.note || '') + resNote;
     return okChange
       ? O.pass(name, detail)
       : O.fail(name, '点击后状态未按预期变化' + (detail ? ' · ' + detail : '') + ' | ' + before + ' → ' + after);
@@ -221,6 +243,7 @@
 
   /* ---------------- Modal ---------------- */
   O.modalKind = function () {
+    if (O.$('[data-testid="result-modal"]')) return 'RESULT';
     var h = O.$('.modal-header');
     if (!h) return null;
     var t = O.txt(h);
@@ -233,10 +256,74 @@
     if (t.indexOf('远征规则') === 0) return 'RULES';
     return 'OTHER:' + t;
   };
+
+  /* ---------------- 统一结果提示弹窗（v0.1.2b 即时反馈） ---------------- */
+  O.resultEl = function () {
+    return O.$('[data-testid="result-modal"]');
+  };
+  /** 读取结果弹窗内容：标题 / 正文 / 资源变化（变化前 → 变化后）/ 结局 */
+  O.resultInfo = function () {
+    var el = O.resultEl();
+    if (!el) return null;
+    var rows = O.$$('[data-testid="result-changes"] li', el).map(function (li) {
+      return {
+        label: O.txt(O.$('.rc-label', li)),
+        before: O.txt(O.$('.rc-before', li)),
+        arrow: O.txt(O.$('.rc-arrow', li)),
+        after: O.txt(O.$('.rc-after', li)),
+        cls: li.className,
+      };
+    });
+    var outcomeEl = O.$('[data-testid="result-outcome"]', el);
+    return {
+      title: O.txt(O.$('.modal-header h3', el)),
+      message: O.txt(O.$('[data-testid="result-message"]', el)),
+      changes: rows,
+      outcome: outcomeEl ? O.txt(outcomeEl) : null,
+      confirmText: O.txt(O.$('[data-testid="result-confirm"]', el)),
+    };
+  };
+  /** 确认（关闭）当前结果弹窗 */
+  O.confirmResult = async function () {
+    var btn = O.$('[data-testid="result-confirm"]');
+    if (!btn) return false;
+    btn.click();
+    await O.sleep(200);
+    return true;
+  };
+  /** 连续确认直到没有结果弹窗（最多 n 条） */
+  O.clearResults = async function (n) {
+    var done = 0;
+    while (done < (n || 10) && O.resultEl()) {
+      await O.confirmResult();
+      done += 1;
+    }
+    return done;
+  };
+  /**
+   * 依次确认并收集所有结果弹窗，返回 info 列表（先进先出 = 事件发生顺序）。
+   * 一次行动可能先产生「宿营完成」，随后才产生天气事件结算，所以断言
+   * 「某事件有即时反馈」应当在整个队列里找，而不是只看第一条。
+   */
+  O.collectResults = async function (n) {
+    var out = [];
+    for (var i = 0; i < (n || 6); i += 1) {
+      var info = O.resultInfo();
+      if (!info) break;
+      out.push(info);
+      await O.confirmResult();
+    }
+    return out;
+  };
+
   O.clearModals = async function () {
-    for (var i = 0; i < 8; i++) {
+    for (var i = 0; i < 12; i++) {
       var k = O.modalKind();
       if (!k) return null;
+      if (k === 'RESULT') {
+        await O.confirmResult();
+        continue;
+      }
       if (k === 'FORECAST' || k === 'RULES') {
         var close = O.$('.modal-close') || O.byTextOne('.modal-footer .btn', '关闭');
         if (close) close.click();
@@ -282,18 +369,19 @@
     input.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   };
-  O.buyEquipment = async function (tents, compasses) {
-    for (var i = 0; i < (tents || 0); i++) {
+  O.buyEquipment = async function (tents, compasses) {    for (var i = 0; i < (tents || 0); i++) {
       var b = O.byTextOne('button', '购买帐篷');
       if (!b || b.disabled) break;
       b.click();
-      await O.sleep(140);
+      await O.sleep(160);
+      await O.clearResults(); // 购买会弹出即时反馈结果
     }
     for (var j = 0; j < (compasses || 0); j++) {
       var c = O.byTextOne('button', '购买指南针');
       if (!c || c.disabled) break;
       c.click();
-      await O.sleep(140);
+      await O.sleep(160);
+      await O.clearResults();
     }
   };
   O.gotoGame = async function (seed, buy) {
@@ -312,9 +400,148 @@
     return O.gameReady();
   };
 
+  /* ---------------- 帐篷 / 天气 Modal 准备（v0.1.2b 追加） ---------------- */
+
+  /** 顶栏帐篷文案 → { A:3, B:3, C:2, D:1 } */
+  O.tentCharges = function () {
+    var out = {};
+    var re = /([A-Z]) (\d)\/(\d)/g;
+    var s = O.tentsState();
+    var m;
+    while ((m = re.exec(s)) !== null) out[m[1]] = Number(m[2]);
+    return out;
+  };
+  O.chargesPattern = function () {
+    var t = O.tentCharges();
+    return Object.keys(t)
+      .sort()
+      .map(function (k) {
+        return k + t[k];
+      })
+      .join('/');
+  };
+
+  /** 用指定帐篷宿营（不传则挑剩余耐久最高的一顶，尽量不影响其它帐篷） */
+  O.campWith = async function (tentId) {
+    var list = O.$$('.action-btn').filter(function (b) {
+      return O.txt(b).indexOf('原地宿营') >= 0 && !b.disabled && b.getAttribute('data-tentid');
+    });
+    var pick = null;
+    if (tentId) {
+      pick = list.filter(function (b) {
+        return b.getAttribute('data-tentid') === tentId;
+      })[0];
+    }
+    if (!pick) {
+      var best = null;
+      var bestCharge = -1;
+      list.forEach(function (b) {
+        var c = Number((O.txt(b).match(/（(\d)\//) || [])[1] || 0);
+        if (c > bestCharge) {
+          bestCharge = c;
+          best = b;
+        }
+      });
+      pick = best;
+    }
+    if (!pick) return false;
+    pick.click();
+    await O.sleep(340);
+    await O.clearResults();
+    return true;
+  };
+
+  /** 在沙尘暴 Modal 里用「只用帐篷」方式消耗某顶帐篷（用于推进到下一个天气） */
+  O.resolveStormWithTent = async function (tentId) {
+    var rows = O.$$('.tent-choice');
+    var pick = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (!tentId || O.$('.tent-choice-name', rows[i]).getAttribute('data-tentid') === tentId) {
+        pick = O.$$('button', rows[i]).filter(function (b) {
+          return !b.disabled && O.txt(b).indexOf('只用帐篷') >= 0;
+        })[0];
+        break;
+      }
+    }
+    if (!pick) {
+      // 退而求其次：用最高耐久帐篷的「+ 指南针」
+      pick = O.$$('.tent-choice button').filter(function (b) {
+        return !b.disabled && O.txt(b).indexOf('指南针') >= 0;
+      })[0];
+    }
+    if (!pick) return false;
+    pick.click();
+    await O.sleep(420);
+    await O.clearResults();
+    return true;
+  };
+
+  /**
+   * 准备一个「沙尘暴 Modal 打开」的现场：
+   *  - 出城到 (6,0)（沙漠）；
+   *  - 按 plan 依次用指定帐篷宿营（用来把耐久调成目标形态）；
+   *  - 中途出现的沙尘暴用「只用帐篷」消化（优先不碰 plan 里的帐篷）；
+   *  - plan 完成后在 城市↔沙漠 之间往返推进天数找沙尘暴（往返不消耗帐篷）。
+   * 返回 true 表示沙尘暴 Modal 已打开。
+   */
+  O.prepareStorm = async function (seed, tents, compasses, plan) {
+    var ready = await O.gotoGame(seed, { tents: tents, compasses: compasses });
+    if (!ready) return false;
+    var camp = { tents: tents, compasses: compasses };
+    await O.stepAnywhere();
+    for (var i = 0; i < 46; i++) {
+      var k = await O.clearModals();
+      if (k === 'SANDSTORM') {
+        if (!plan || plan.length === 0) return true; // plan 已完成 → 这个 Modal 就是测量目标
+        // plan 还没走完：用「什么都不用」硬扛，保住帐篷形态不被额外消耗
+        var skip = O.byTextOne('.modal-body button', '什么都不用') || O.$$('.modal-body button')[0];
+        if (skip) {
+          skip.click();
+          await O.sleep(420);
+          await O.clearResults();
+        }
+        continue;
+      }
+      if (k === 'RAINSTORM') {
+        await O.resolveWeatherModal();
+        await O.clearResults();
+        continue;
+      }
+      if (k === 'RESULT') continue;
+      if (plan && plan.length) {
+        await O.campWith(plan.shift());
+        continue;
+      }
+      // plan 用完：在沙漠格宿营（会消耗帐篷）之前，先试「往返城市」推进天数，避免动帐篷
+      var here = O.currentTile();
+      var city = O.$('.grid-tile[data-tileid="7:0"]');
+      var clickable = O.$$('.grid-tile.clickable');
+      var back = clickable.filter(function (t) {
+        return t.getAttribute('data-tileid') === '7:0';
+      })[0];
+      if (here !== '7:0' && back) {
+        back.click();
+        await O.sleep(300);
+        await O.clearResults();
+        continue;
+      }
+      var up = clickable.filter(function (t) {
+        return t.getAttribute('data-tileid') === '6:0';
+      })[0];
+      if (up) {
+        up.click();
+        await O.sleep(300);
+        await O.clearResults();
+        continue;
+      }
+      // 兜底：宿营推进
+      if (!(await O.campWith())) return false;
+    }
+    return false;
+  };
+
   /* ---------------- 行走 ---------------- */
-  O.walkTowards = async function (target, maxSteps) {
-    var trail = [O.currentTile()];
+  O.walkTowards = async function (target, maxSteps) {    var trail = [O.currentTile()];
     var stuck = 0;
     for (var s = 0; s < maxSteps; s++) {
       if (O.currentTile() === target) {
@@ -322,8 +549,10 @@
         return true;
       }
       var k = await O.clearModals();
+      if (k === 'RESULT') continue;
       if (k === 'SANDSTORM' || k === 'RAINSTORM') {
         await O.resolveWeatherModal();
+        await O.clearResults();
         continue;
       }
       var clickable = O.$$('.grid-tile.clickable');
@@ -346,6 +575,7 @@
       var before = O.currentTile();
       best.click();
       await O.sleep(300);
+      await O.clearResults(); // 移动产生的天气/事件反馈
       var after = O.currentTile();
       if (after === before) {
         stuck += 1;
@@ -369,8 +599,10 @@
   /** 通用探索：随机走一个合法未访问格 */
   O.stepAnywhere = async function () {
     var k = await O.clearModals();
+    if (k === 'RESULT') return true;
     if (k === 'SANDSTORM' || k === 'RAINSTORM') {
       await O.resolveWeatherModal();
+      await O.clearResults();
       return true;
     }
     var clickable = O.$$('.grid-tile.clickable');
@@ -378,6 +610,7 @@
     var before = O.currentTile();
     clickable[0].click();
     await O.sleep(300);
+    await O.clearResults();
     return O.currentTile() !== before;
   };
 
@@ -395,5 +628,115 @@
     }).length;
     window.__AUDIT_DONE = true;
   };
+
+  /* ---------------- v0.1.2b 追加：装备按钮文案完整性 ---------------- */
+
+  /** 沙尘暴 Modal 的期望完整文案（真人试玩要求：玩家必须看到完整后果） */
+  O.STORM_LABELS = {
+    perTent: ['+ 指南针（安全通过）', '只用帐篷（迷路 +1 天）'],
+    noTentCompass: '只用指南针（耐力 -1，不迷路）',
+    noTentNothing: '什么都不用（耐力 -1，且迷路额外损失 1 天）',
+  };
+
+  /**
+   * 断言 Modal 内所有装备按钮的文案**完整可读**：
+   *  1. 完整在视口内（Modal 不超出视口）；
+   *  2. Header / 关闭按钮可见；
+   *  3. 每个按钮不存在文字裁切（scroll <= client，无 ellipsis/nowrap 截断）；
+   *  4. 每个按钮不存在被 overflow 祖先裁切；
+   *  5. 按钮区域可被指针命中（点击区域完整）；
+   *  6. 文案与期望**完全一致**（校验用户实际看到的字，而不只是 Action 存在）；
+   *  7. 记录按钮行数（>1 = 已按需换行，属允许行为）。
+   */
+  O.assertLabelsIntact = function (tag, expected, opts) {
+    opts = opts || {};
+    var modal = O.$(opts.sel || '.modal');
+    if (!modal) {
+      O.fail(tag + ' · Modal 存在', '找不到 Modal（kind=' + O.modalKind() + '）');
+      return null;
+    }
+    var body = O.$('.modal-body', modal);
+    var header = O.$('.modal-header', modal);
+    var mRect = modal.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    O.assert(
+      tag + ' · Modal 完整在视口内（不被裁到屏幕外）',
+      mRect.top >= -1 && mRect.left >= -1 && mRect.bottom <= vh + 1 && mRect.right <= vw + 1,
+      'modal=[' + Math.round(mRect.left) + ',' + Math.round(mRect.top) + ',' + Math.round(mRect.right) + ',' + Math.round(mRect.bottom) + '] viewport=' + vw + 'x' + vh,
+    );
+    O.assert(
+      tag + ' · Header 可见' + (opts.requireClose ? ' / 关闭按钮存在' : '（事件类 Modal 无关闭按钮，属预期）'),
+      !!header &&
+        header.getBoundingClientRect().height > 0 &&
+        header.getBoundingClientRect().top >= -1 &&
+        (!opts.requireClose || !!O.$('.modal-close', modal)),
+      header ? 'header=' + O.txt(header) + ' · close=' + !!O.$('.modal-close', modal) : 'no header',
+    );
+
+    var buttons = O.$$('button', modal);
+    var problems = [];
+    var rows = [];
+    var scrolled = 0;
+    for (var i = 0; i < buttons.length; i++) {
+      var b = buttons[i];
+      var label = O.txt(b);
+      if (!label) continue;
+      b.scrollIntoView({ block: 'nearest' });
+      var br = b.getBoundingClientRect();
+      var bodyRect = body.getBoundingClientRect();
+      var clippedX = b.scrollWidth > b.clientWidth + 1;
+      var clippedY = b.scrollHeight > b.clientHeight + 1;
+      var inBody = br.top >= bodyRect.top - 1 && br.bottom <= bodyRect.bottom + 1;
+      var mid = document.elementFromPoint(Math.min(vw - 1, Math.max(0, (br.left + br.right) / 2)), Math.min(vh - 1, Math.max(0, (br.top + br.bottom) / 2)));
+      var hit = mid === b || (mid && b.contains(mid));
+      // overflow 祖先裁切
+      var occluded = null;
+      var a = b.parentElement;
+      while (a && a !== document.body) {
+        var cs = getComputedStyle(a);
+        var oy = cs.overflowY;
+        var ox = cs.overflowX;
+        if (oy !== 'visible' || ox !== 'visible') {
+          var ar = a.getBoundingClientRect();
+          if (br.left < ar.left - 1 || br.right > ar.right + 1) occluded = 'horiz-by:' + (a.className || a.tagName);
+          if (cs.overflowY !== 'visible' && (br.top < ar.top - 1 || br.bottom > ar.bottom + 1)) {
+            if (!a.classList.contains('modal-body')) occluded = 'vert-by:' + (a.className || a.tagName);
+          }
+        }
+        a = a.parentElement;
+      }
+      var lines = br.height > 34 ? 2 : 1;
+      rows.push({ label: label, w: Math.round(br.width), h: Math.round(br.height), lines: lines, disabled: !!b.disabled, inBody: inBody, hit: hit });
+      if (clippedX || clippedY || occluded || !hit || (opts.requireVisible !== false && !inBody)) {
+        problems.push(
+          '"' + label.slice(0, 26) + '"' +
+            (clippedX ? ' 横向裁切' : '') +
+            (clippedY ? ' 纵向裁切' : '') +
+            (occluded ? ' ' + occluded : '') +
+            (hit ? '' : ' 指针不可达') +
+            (inBody ? '' : ' 超出可视区'),
+        );
+      }
+    }
+    O.assert(tag + ' · 所有按钮文案完整、未被裁切/遮挡', problems.length === 0, '检查 ' + rows.length + ' 个按钮 · ' + (problems.length ? problems.join(' | ') : '全部完整'));
+
+    if (expected) {
+      var missing = [];
+      for (var k = 0; k < expected.length; k++) {
+        var found = rows.some(function (r) {
+          return r.label === expected[k];
+        });
+        if (!found) missing.push(expected[k]);
+      }
+      O.assert(
+        tag + ' · 期望文案逐字存在（用户看到的完整字面）',
+        missing.length === 0,
+        missing.length ? '缺少：' + missing.join(' / ') : expected.length + ' 条文案全部逐字匹配',
+      );
+    }
+    return { rows: rows, problems: problems };
+  };
+
   return 'lib-ready';
 })();
