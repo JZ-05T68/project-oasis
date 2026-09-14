@@ -48,7 +48,7 @@ const baseConfig = {
    * 同时合理玩家胜率从 91.35% 回到 77.33%（目标带 70~90% 中段），
    * 并出现了「轻装＝高 EV 低胜率 / 重装＝稳但收益低」的真实取舍。
    */
-  tentPrice: 400,
+  tentPrice: 700,
   tentDesertCharges: 3,
   compassPrice: 100,
   /** 商队二手帐篷价格与耐久 */
@@ -121,7 +121,7 @@ const baseConfig = {
      * 注意：0.20 / 0.25 / 0.28 / 0.30 四档在 score 上已进入平台期（±0.02），
      * 选 0.25 是为了留出余量，不取刚好贴线的 0.30。
      */
-    baseProbability: 0.35,
+    baseProbability: 0.25,
     /** 村庄遭遇中盗贼的比例（其余为繁荣市集） */
     villageThiefRatio: 0.5,
   },
@@ -142,7 +142,7 @@ const baseConfig = {
      * EV 比同配置不买预报的对照 Bot 低约 1025 元；提到 5 次/包后差距收窄到 866 元（−16%）。
      * 这属于「已有数值」，不是机制改动：计价方式（1 maxDays/包）、只预报自然天气、单日局部都不变。
      */
-    chargesPerPack: 3,
+    chargesPerPack: 5,
     /** 购买后立即自动使用次数 */
     autoUseOnPurchase: 1,
     /** 邻域半径（8 邻域固定为 1 圈） */
