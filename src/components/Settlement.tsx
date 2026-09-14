@@ -1,4 +1,4 @@
-import { computeSettlement, starLabel } from '../game';
+import { computeSettlement, starLabel, gameConfig } from '../game';
 import type { GameState } from '../game/types';
 
 interface Props {
@@ -92,7 +92,7 @@ export default function Settlement({ game, onRestart }: Props) {
                 <td className="v">{v.finalAssets} 元</td>
               </tr>
               <tr className="hl">
-                <td className="k">净收益（相对 2000 元本金）</td>
+                <td className="k">净收益（相对 {gameConfig.startCash} 元本金）</td>
                 <td className="v">
                   {v.netProfit >= 0 ? '+' : ''}
                   {v.netProfit} 元

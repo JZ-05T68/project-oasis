@@ -3,29 +3,38 @@ import { performMove, performAction, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
 import { bfsPath } from '../src/game/map/grid';
 import { newGame, calmOverrides, mutate, walkTo, mkTents, TENT_A } from './helpers';
+import { gameConfig } from '../src/game/config/gameConfig';
 
-/** 天气预报（v0.1.2）：单日局部 + 可储存次数 */
+/**
+ * 天气预报（v0.1.2）：单日局部 + 可储存次数。
+ * 过夜平衡实验后「每包次数」改为可调参数，测试一律从 gameConfig 推导，
+ * 不再写死 3，否则调参就会把测试打红。
+ */
+const PACK = gameConfig.forecast.chargesPerPack;
+const AUTO = gameConfig.forecast.autoUseOnPurchase;
+const AFTER_BUY = PACK - AUTO;
+
 describe('天气预报：购买机制', () => {
-  it('首次购买：maxDays 42→41，获得 3 次，自动使用 1 次剩 2 次，并立即显示明天', () => {
+  it(`首次购买：maxDays ${gameConfig.maxDays}→${gameConfig.maxDays - 1}，获得 ${PACK} 次，自动使用 ${AUTO} 次剩 ${AFTER_BUY} 次，并立即显示明天`, () => {
     let s = newGame('fc-buy-1', calmOverrides(newGame('fc-buy-1').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(41);
+    expect(s.maxDays).toBe(gameConfig.maxDays - 1);
     expect(s.daysUsed).toBe(0); // 购买不消耗当天
-    expect(s.forecastCharges).toBe(2);
+    expect(s.forecastCharges).toBe(AFTER_BUY);
     expect(s.stats.forecastPacks).toBe(1);
     expect(s.lastForecast).not.toBeNull();
     expect(s.lastForecast!.day).toBe(1); // 明天
   });
 
-  it('重复购买正确叠加：1 存量 + 3 - 1 自动 = 3', () => {
+  it('重复购买正确叠加：存量 + 每包次数 - 自动使用', () => {
     let s = newGame('fc-buy-2', calmOverrides(newGame('fc-buy-2').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.forecastCharges).toBe(2);
+    expect(s.forecastCharges).toBe(AFTER_BUY);
     s = performAction(s, { type: 'USE_FORECAST' });
-    expect(s.forecastCharges).toBe(1);
+    expect(s.forecastCharges).toBe(AFTER_BUY - 1);
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(40);
-    expect(s.forecastCharges).toBe(3);
+    expect(s.maxDays).toBe(gameConfig.maxDays - 2);
+    expect(s.forecastCharges).toBe(AFTER_BUY - 1 + PACK - AUTO);
     expect(s.stats.forecastPacks).toBe(2);
   });
 
@@ -36,7 +45,7 @@ describe('天气预报：购买机制', () => {
     s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.daysUsed).toBe(before.day);
     expect(s.maxDays).toBe(before.maxDays);
-    expect(s.forecastCharges).toBe(before.day === 0 ? 1 : 1); // 2 - 1
+    expect(s.forecastCharges).toBe(AFTER_BUY - 1);
   });
 
   it('次数不能低于 0：无次数时使用抛错', () => {
@@ -48,13 +57,13 @@ describe('天气预报：购买机制', () => {
   it('储存次数不过期、不随移动消失', () => {
     let s = newGame('fc-save', calmOverrides(newGame('fc-save').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.forecastCharges).toBe(2);
+    expect(s.forecastCharges).toBe(AFTER_BUY);
     // 连续移动多天
     for (let i = 0; i < 3; i++) {
       const legal = getLegalMoves(s);
       s = performMove(s, legal[0]);
     }
-    expect(s.forecastCharges).toBe(2); // 不过期
+    expect(s.forecastCharges).toBe(AFTER_BUY); // 不过期
   });
 
   it('天数推进后旧预报失效', () => {
@@ -171,8 +180,7 @@ describe('天气预报：等待避灾配合', () => {
   it('预报次数用尽后无法再查看', () => {
     let s = newGame('fc-empty', calmOverrides(newGame('fc-empty').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    s = performAction(s, { type: 'USE_FORECAST' });
-    s = performAction(s, { type: 'USE_FORECAST' });
+    for (let i = 0; i < AFTER_BUY; i++) s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.forecastCharges).toBe(0);
     expect(() => performAction(s, { type: 'USE_FORECAST' })).toThrow(GameError);
   });
@@ -187,7 +195,7 @@ describe('天气预报：等待避灾配合', () => {
     s = walkTo(s, target);
     expect(s.status).toBe('ONGOING');
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.forecastCharges).toBe(2);
+    expect(s.forecastCharges).toBe(AFTER_BUY);
     expect(s.lastForecast).not.toBeNull();
   });
 });

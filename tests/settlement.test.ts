@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, performAction, computeSettlement, resolvePendingEvent, createNewGame, getLegalMoves } from '../src/game';
 import { newGame, calmOverrides, walkTo, mutate, mineTile, nearestMineTile, act } from './helpers';
+import { gameConfig } from '../src/game/config/gameConfig';
 
 
 describe('结算：胜利', () => {
@@ -40,11 +41,13 @@ describe('结算：胜利', () => {
     s = performAction(s, { type: 'START_RETURN' });
     s = walkTo(s, s.map.cityId);
     const v = computeSettlement(s);
-    expect(v.equipmentSpent).toBe(500);
-    expect(v.cashRemaining).toBe(1500);
+    // 帐篷价为可调参数：从 gameConfig 推导，不写死 500 / 1500
+    const spent = gameConfig.tentPrice + gameConfig.compassPrice;
+    expect(v.equipmentSpent).toBe(spent);
+    expect(v.cashRemaining).toBe(gameConfig.startCash - spent);
     expect(v.gemRevenue).toBe(0); // 未挖矿
-    expect(v.finalAssets).toBe(1500);
-    expect(v.netProfit).toBe(-500);
+    expect(v.finalAssets).toBe(gameConfig.startCash - spent);
+    expect(v.netProfit).toBe(-spent);
     expect(v.mineSlot).toBe(mine.slot);
   });
 

@@ -10,6 +10,26 @@ export interface RunResult {
   error: string | null;
 
   mineId: TileId | null;
+  /** 选择的矿区槽位（A / B），用于统计两矿选择率 */
+  mineSlot?: 'A' | 'B' | null;
+  /** 结束时的剩余耐力（失败局为 0 或当时值） */
+  endStamina?: number;
+  /** 结束时的剩余天数 */
+  endDaysRemaining?: number;
+  /** 全程经过绿洲格次数（去程+返程） */
+  oasisVisits?: number;
+  /** 全程经过村庄格次数（去程+返程） */
+  villageVisits?: number;
+  /** 天气造成的耐力损失次数（高温/沙尘暴/暴雨硬扛） */
+  weatherDamageHits?: number;
+  /** 天气造成的耐力损失总量 */
+  weatherDamageTotal?: number;
+  /** 触发的遭遇次数（商队/盗贼/市集/牧民） */
+  encounterCount?: number;
+  /** 绿洲修整次数 */
+  restCount?: number;
+  /** 原地等待次数 */
+  waitCount?: number;
   /**
    * 该矿区「最短合法往返方案」的客观危险程度与品质 jitter（v0.1.2b）。
    * 价格完全由这两项决定，与玩家行为无关；记录下来后可以在不重跑对局的前提下
@@ -99,6 +119,28 @@ export interface BotSummary {
   /** 装备浪费率：(结束时剩余帐篷耐久+剩余指南针) / (购买的总耐久+总指南针) */
   equipmentWasteRate: number;
 
+  /** 结束时平均剩余耐力（全部局） */
+  avgEndStamina: number;
+  /** 结束时平均剩余天数 */
+  avgEndDaysRemaining: number;
+  /** 平均经过绿洲格次数 */
+  avgOasisVisits: number;
+  /** 平均经过村庄格次数 */
+  avgVillageVisits: number;
+  /** 平均天气伤害次数 / 总伤害量 */
+  avgWeatherHits: number;
+  avgWeatherDamage: number;
+  /** 平均遭遇触发次数 */
+  avgEncounters: number;
+  /** 平均绿洲修整次数 / 原地等待次数 */
+  avgRestCount: number;
+  avgWaitCount: number;
+  /** 至少修整过一次的局占比 % */
+  restRate: number;
+  /** 至少触发过一次遭遇的局占比 % */
+  encounterRate: number;
+  /** 两矿槽位选择占比 % */
+  mineSlotShare: Record<string, number>;
   avgGemsKgWins: number;
   /** 矿区选择分布 */
   mineVisits: Record<TileId, number>;
@@ -135,6 +177,12 @@ export function aggregateBot(results: RunResult[]): BotSummary {
   for (const r of results) {
     if (r.mineId) mineVisits[r.mineId] = (mineVisits[r.mineId] ?? 0) + 1;
   }
+  const slotCounts: Record<string, number> = {};
+  for (const r of results) {
+    if (r.mineSlot) slotCounts[r.mineSlot] = (slotCounts[r.mineSlot] ?? 0) + 1;
+  }
+  const restRuns = results.filter((r) => (r.restCount ?? 0) > 0).length;
+  const encounterRuns = results.filter((r) => (r.encounterCount ?? 0) > 0).length;
   const purchasedCharges = results.reduce((s, r) => s + r.tentsBought * 3 + r.compassesBought, 0);
   const leftCharges = results.reduce((s, r) => s + r.tentsChargesLeft + r.compassesLeft, 0);
   const scores = results.map((r) => r.routeScore).filter((v): v is number => v !== null);
@@ -175,6 +223,20 @@ export function aggregateBot(results: RunResult[]): BotSummary {
     avgCompassUses: round2(mean(results.map((r) => r.compassUses))),
     avgEquipmentSpent: round2(mean(results.map((r) => r.equipmentSpent))),
     equipmentWasteRate: round2(purchasedCharges === 0 ? 0 : (leftCharges / purchasedCharges) * 100),
+    avgEndStamina: round2(mean(results.map((r) => r.endStamina ?? 0))),
+    avgEndDaysRemaining: round2(mean(results.map((r) => r.endDaysRemaining ?? 0))),
+    avgOasisVisits: round2(mean(results.map((r) => r.oasisVisits ?? 0))),
+    avgVillageVisits: round2(mean(results.map((r) => r.villageVisits ?? 0))),
+    avgWeatherHits: round2(mean(results.map((r) => r.weatherDamageHits ?? 0))),
+    avgWeatherDamage: round2(mean(results.map((r) => r.weatherDamageTotal ?? 0))),
+    avgEncounters: round2(mean(results.map((r) => r.encounterCount ?? 0))),
+    avgRestCount: round2(mean(results.map((r) => r.restCount ?? 0))),
+    avgWaitCount: round2(mean(results.map((r) => r.waitCount ?? 0))),
+    restRate: round2(runs === 0 ? 0 : (restRuns / runs) * 100),
+    encounterRate: round2(runs === 0 ? 0 : (encounterRuns / runs) * 100),
+    mineSlotShare: Object.fromEntries(
+      Object.entries(slotCounts).map(([k, v]) => [k, round2((v / runs) * 100)]),
+    ),
     avgGemsKgWins: round2(mean(wins.map((r) => r.gemsKg))),
     mineVisits,
     avgRouteScore: scores.length ? round2(mean(scores)) : null,

@@ -33,8 +33,9 @@ describe('核心引擎：初始状态', () => {
     s = performAction(s, { type: 'BUY', item: 'compass' });
     expect(charges(s.tents)).toEqual([gameConfig.tentDesertCharges]);
     expect(s.compasses).toBe(1);
-    expect(s.cash).toBe(2000 - 400 - 100);
-    expect(s.equipmentSpent).toBe(500);
+    // 过夜平衡实验后帐篷价改为可调：断言一律从 gameConfig 推导，不写死 400/100
+    expect(s.cash).toBe(gameConfig.startCash - gameConfig.tentPrice - gameConfig.compassPrice);
+    expect(s.equipmentSpent).toBe(gameConfig.tentPrice + gameConfig.compassPrice);
     expect(s.daysUsed).toBe(0);
   });
 });
@@ -353,11 +354,15 @@ describe('核心引擎：绿洲修整', () => {
 });
 
 describe('核心引擎：购买天气预报包', () => {
-  it('购买：maxDays -1，+3 次并立即使用 1 次剩 2 次', () => {
+  const PACK = gameConfig.forecast.chargesPerPack;
+  const AUTO = gameConfig.forecast.autoUseOnPurchase;
+  const AFTER_BUY = PACK - AUTO;
+
+  it(`购买：maxDays -1，+${PACK} 次并立即使用 ${AUTO} 次剩 ${AFTER_BUY} 次`, () => {
     let s = newGame('fpack-1', calmOverrides(newGame('fpack-1').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(41);
-    expect(s.forecastCharges).toBe(2);
+    expect(s.maxDays).toBe(gameConfig.maxDays - 1);
+    expect(s.forecastCharges).toBe(AFTER_BUY);
     expect(s.stats.forecastPacks).toBe(1);
     expect(s.daysUsed).toBe(0); // 不消耗当天
     expect(s.lastForecast).not.toBeNull();
@@ -367,13 +372,12 @@ describe('核心引擎：购买天气预报包', () => {
   it('重复购买正确叠加', () => {
     let s = newGame('fpack-2', calmOverrides(newGame('fpack-2').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.forecastCharges).toBe(2);
-    // 手动用掉 1 次后剩余 1，再购买：1 + 3 - 1 = 3
+    expect(s.forecastCharges).toBe(AFTER_BUY);
     s = performAction(s, { type: 'USE_FORECAST' });
-    expect(s.forecastCharges).toBe(1);
+    expect(s.forecastCharges).toBe(AFTER_BUY - 1);
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(40);
-    expect(s.forecastCharges).toBe(3);
+    expect(s.maxDays).toBe(gameConfig.maxDays - 2);
+    expect(s.forecastCharges).toBe(AFTER_BUY - 1 + PACK - AUTO);
     expect(s.stats.forecastPacks).toBe(2);
   });
 });

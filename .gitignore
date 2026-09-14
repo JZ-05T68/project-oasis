@@ -22,3 +22,4 @@ Thumbs.db
 reports/.tmp/
 reports/.econ-tmp/
 reports/smoke/
+reports/**/raw/.tmp-*/

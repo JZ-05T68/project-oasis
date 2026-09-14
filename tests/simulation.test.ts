@@ -5,6 +5,7 @@ import { runOne, runBatchSeeds, makeBotRng, type BotStrategy } from '../src/simu
 import { aggregateBot, aggregateEvents, aggregateNodeHeat, type RunResult } from '../src/simulation/metrics';
 import { ALL_BOTS, randomBot, mineABot, mineBBot } from '../src/simulation/bots';
 import { mkTents, TENT_A } from './helpers';
+import { gameConfig } from '../src/game/config/gameConfig';
 
 describe('v0.1.2 FairView 防作弊', () => {
   it('FairView 不暴露天气表 / 遭遇预生成表 / RNG / 未抵达绿洲的干涸状态', () => {
@@ -216,10 +217,12 @@ describe('引擎直接行为抽查（仿真等价路径）', () => {
   it('买预报包 + 使用 + 宿营 组合行为', () => {
     let s = newGameCalm('combo-v012');
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(41);
-    expect(s.forecastCharges).toBe(2);
+    expect(s.maxDays).toBe(gameConfig.maxDays - 1);
+    expect(s.forecastCharges).toBe(gameConfig.forecast.chargesPerPack - gameConfig.forecast.autoUseOnPurchase);
     s = performAction(s, { type: 'USE_FORECAST' });
-    expect(s.forecastCharges).toBe(1);
+    expect(s.forecastCharges).toBe(
+      gameConfig.forecast.chargesPerPack - gameConfig.forecast.autoUseOnPurchase - 1,
+    );
     s = mutate(s, (m) => {
       m.tents = mkTents([3]); // 野外宿营需要帐篷
     });

@@ -12,13 +12,13 @@ function RulesContent() {
     <div className="rules-content">
       <h4>一、游戏目标</h4>
       <p>
-        你携带 <b>2000 元</b> 从城市出发，在 <b>42 天</b> 内完成：
+        你携带 <b>{gameConfig.startCash} 元</b> 从城市出发，在 <b>{gameConfig.maxDays} 天</b> 内完成：
         <b>城市 → 矿区 → 挖矿 → 沿不重复路线返城</b>。宝石的精确单价在你
         <b>成功返城后才会鉴定公布</b>——矿区本身的客观开采难度会影响它的价值。
       </p>
       <h4>二、地图</h4>
       <p>
-        <b>8×9</b> 格子地图（72 格，本轮真人试玩测试尺寸）。城市固定在<b>左下角 (7,0)</b>；
+        <b>{gameConfig.map.rows}×{gameConfig.map.cols}</b> 格子地图（{gameConfig.map.rows * gameConfig.map.cols} 格，本轮真人试玩测试尺寸）。城市固定在<b>左下角 ({gameConfig.map.rows - 1},0)</b>；
         两个矿区（Mine A / Mine B）位于<b>最右侧一列</b>，位置每局随机，但<b>只出现在最上方的 6 行内</b>
         （不会紧贴右下角，否则远征距离过短）；其余格子的地形（草地/沙漠/村庄/绿洲）完全随机。
       </p>

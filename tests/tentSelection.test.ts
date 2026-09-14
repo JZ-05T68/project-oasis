@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { performAction, performMove, resolvePendingEvent } from '../src/game';
 import { GameError } from '../src/game/types';
 import type { GameState, TentId, TentItem } from '../src/game/types';
+import { gameConfig } from '../src/game/config/gameConfig';
 import {
   newGame,
   calmOverrides,
@@ -272,6 +273,10 @@ describe('多顶帐篷专项 §3.2：稳定 ID 不错位（列表重排后仍指
 
   it('帐篷 ID 单调递增且不复用（购买 4 顶 → 用尽 1 顶 → 再购买）', () => {
     let s = base('tent4-serial');
+    // 帐篷单价本轮调到 700，4 顶超出 2000 本金——这里测的是 ID 语义，给足现金
+    s = mutate(s, (m) => {
+      m.cash = gameConfig.tentPrice * 4;
+    });
     for (let i = 0; i < 4; i++) s = performAction(s, { type: 'BUY', item: 'tent' });
     expect(tentIds(s.tents)).toEqual([TENT_A, TENT_B, TENT_C, TENT_D]);
     expect(charges(s.tents)).toEqual([3, 3, 3, 3]);

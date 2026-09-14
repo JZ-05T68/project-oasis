@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { gameConfig } from '../game';
 
 interface Props {
   onStart: (seed: string) => void;
@@ -15,10 +16,10 @@ export default function StartScreen({ onStart, randomSeed }: Props) {
         <p className="subtitle">PROJECT OASIS · 沙漠商队策略 · v0.1.2b</p>
         <div className="start-card">
           <p className="desc">
-            你携带 <b>2000 元</b> 从城市出发。穿越<b>随机生成</b>的沙漠与草原，
+            你携带 <b>{gameConfig.startCash} 元</b> 从城市出发。穿越<b>随机生成</b>的沙漠与草原，
             抵达两个随机矿区之一（宝石单价属于最终鉴定结果，<b>成功返城后才会公布</b>），
             自行决定挖矿天数，再沿一条<b>不重复</b>的路线返回城市。
-            整个旅程必须在 <b>42 天</b>内完成——矿区越难安全往返，宝石通常越值钱，
+            整个旅程必须在 <b>{gameConfig.maxDays} 天</b>内完成——矿区越难安全往返，宝石通常越值钱，
             但你的体力、帐篷与时间都是有限的。
           </p>
           <div className="seed-row">

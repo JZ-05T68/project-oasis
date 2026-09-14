@@ -1,6 +1,7 @@
 import { createNewGame, performAction, performMove, resolvePendingEvent } from '../game';
 import type { EventChoice, GameAction, GameState, TileId } from '../game/types';
 import { hashSeed, nextRandom } from '../game/random/rng';
+import { gameConfig } from '../game/config/gameConfig';
 import { buildFairView, FairView } from './fairView';
 import type { RunResult } from './metrics';
 import { summarizeEventChoice } from './metrics';
@@ -24,6 +25,9 @@ export type BotDecision =
   | { type: 'EVENT'; choice: EventChoice };
 
 export const MAX_TURNS = 500;
+
+/** 遭遇类事件（用于统计遭遇触发密度，天气不算遭遇） */
+const ENCOUNTER_KINDS = new Set(['CARAVAN', 'THIEF', 'MARKET', 'HERDSMAN']);
 
 /** 用局 Seed + Bot 名派生 Bot 私有随机流（可复现，且不消耗游戏 RNG） */
 export function makeBotRng(seed: string, botName: string): BotRng {
@@ -58,6 +62,26 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
   const mineInfo = state.mineEntranceId
     ? state.map.mines.find((m) => m.tileId === state.mineEntranceId)
     : undefined;
+  const mineSlot = state.mineEntranceId
+    ? (state.map.tiles[state.mineEntranceId]?.mineSlot ?? null)
+    : null;
+  // 地形/天气/遭遇 遥测（纯统计，不参与玩法判定）
+  let oasisVisits = 0;
+  let villageVisits = 0;
+  for (const id of [...state.visitedOutbound, ...state.visitedReturn]) {
+    const t = state.map.tiles[id]?.terrain;
+    if (t === 'OASIS') oasisVisits += 1;
+    else if (t === 'VILLAGE') villageVisits += 1;
+  }
+  let weatherDamageHits = 0;
+  let weatherDamageTotal = 0;
+  for (const entry of state.log) {
+    const m = /耐力 -(\d+)/.exec(entry.text);
+    if (m) {
+      weatherDamageHits += 1;
+      weatherDamageTotal += Number(m[1]);
+    }
+  }
   const settlementDays = state.stats;
   const status: RunResult['status'] = state.status === 'VICTORY' ? 'VICTORY' : 'DEFEAT';
   return {
@@ -67,6 +91,16 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     defeatReason: state.defeatReason,
     error,
     mineId: state.mineEntranceId,
+    mineSlot,
+    endStamina: state.stamina,
+    endDaysRemaining: Math.max(0, gameConfig.maxDays - state.daysUsed),
+    oasisVisits,
+    villageVisits,
+    weatherDamageHits,
+    weatherDamageTotal,
+    encounterCount: 0,
+    restCount: 0,
+    waitCount: 0,
     mineDifficulty: mineInfo?.difficultyScore ?? null,
     mineJitter: mineInfo?.detail.jitter ?? null,
     routeScore: state.routeScore,
@@ -84,7 +118,7 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     netProfit:
       state.cash +
       (state.status === 'VICTORY' ? Math.round(state.gemsKg * (state.gemPrice ?? 0)) : 0) -
-      2000,
+      gameConfig.startCash,
     tentsBought: 0,
     compassesBought: 0,
     tentUses: 0,
@@ -120,6 +154,8 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
         if (action.item === 'tent') acc.tentsBought += 1;
         if (action.item === 'compass') acc.compassesBought += 1;
       }
+      if (action.type === 'REST') acc.restCount = (acc.restCount ?? 0) + 1;
+      if (action.type === 'WAIT') acc.waitCount = (acc.waitCount ?? 0) + 1;
       state = performAction(state, action);
     } else {
       const ev = state.pendingEvents[0];
@@ -127,6 +163,7 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
         throw new Error('runner 内部错误：事件队列不匹配');
       }
       const before = { day: state.daysUsed, cash: state.cash };
+      if (ENCOUNTER_KINDS.has(ev.kind)) acc.encounterCount = (acc.encounterCount ?? 0) + 1;
       if (decision.choice.kind === 'SANDSTORM' && decision.choice.useTent) acc.tentUses += 1;
       if (decision.choice.kind === 'RAINSTORM' && decision.choice.useTent) acc.tentUses += 1;
       if (decision.choice.kind === 'SANDSTORM' && decision.choice.useCompass) acc.compassUses += 1;
@@ -151,6 +188,9 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
     compassesBought: acc.compassesBought,
     tentUses: acc.tentUses,
     compassUses: acc.compassUses,
+    encounterCount: acc.encounterCount,
+    restCount: acc.restCount,
+    waitCount: acc.waitCount,
     events: acc.events,
   };
 }
@@ -220,6 +260,16 @@ function emptyResult(): RunResult {
     defeatReason: null,
     error: 'no-result',
     mineId: null,
+    mineSlot: null,
+    endStamina: 0,
+    endDaysRemaining: 0,
+    oasisVisits: 0,
+    villageVisits: 0,
+    weatherDamageHits: 0,
+    weatherDamageTotal: 0,
+    encounterCount: 0,
+    restCount: 0,
+    waitCount: 0,
     mineDifficulty: null,
     mineJitter: null,
     routeScore: null,

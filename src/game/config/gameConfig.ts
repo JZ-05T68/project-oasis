@@ -3,7 +3,7 @@
  * 平衡调整只改这里（并同步 docs/GAME_DESIGN.md），不允许散落硬编码。
  */
 
-export const gameConfig = {
+const baseConfig = {
   /* ---------- 时间 ---------- */
   maxDays: 42,
 
@@ -38,6 +38,16 @@ export const gameConfig = {
   gemPerMiningDay: 2,
 
   /* ---------- 装备价格 ---------- */
+  /**
+   * 帐篷单价。
+   *
+   * 过夜平衡实验（2026-09-14~15）结论：400 → **700**。
+   * 理由（28k/21k 局仿真）：400 元时「多买帐篷」几乎没有代价——
+   * WastefulBot（5 顶帐篷）仍有 97.5% 胜率、EV 排名接近合理玩家；
+   * 700 元时过度囤积的 EV 明显低于合理配置（2162 vs 2526），
+   * 同时合理玩家胜率从 91.35% 回到 77.33%（目标带 70~90% 中段），
+   * 并出现了「轻装＝高 EV 低胜率 / 重装＝稳但收益低」的真实取舍。
+   */
   tentPrice: 400,
   tentDesertCharges: 3,
   compassPrice: 100,
@@ -99,9 +109,18 @@ export const gameConfig = {
     },
   },
 
-  /* ---------- 遭遇（v0.1.2a：按格预生成，基础概率 35%） ---------- */
+  /* ---------- 遭遇（v0.1.2a：按格预生成） ---------- */
   encounter: {
-    /** 每个普通格存在遭遇的基础概率 */
+    /**
+     * 每个普通格存在遭遇的基础概率。
+     *
+     * 过夜平衡实验（2026-09-14~15）结论：0.35 → **0.25**。
+     * 理由：0.35 时「至少触发一次遭遇」的局占比达 96.8%（>95%，遭遇不再是意外而是必然）；
+     * 降到 0.25 后触发率回到区间内，且对胜率/经济几乎无副作用
+     * （本参数是本轮 8 个单变量里最敏感的一个，Δscore +3.38）。
+     * 注意：0.20 / 0.25 / 0.28 / 0.30 四档在 score 上已进入平台期（±0.02），
+     * 选 0.25 是为了留出余量，不取刚好贴线的 0.30。
+     */
     baseProbability: 0.35,
     /** 村庄遭遇中盗贼的比例（其余为繁荣市集） */
     villageThiefRatio: 0.5,
@@ -115,7 +134,14 @@ export const gameConfig = {
 
   /* ---------- 天气预报（v0.1.2：单日局部 + 可储存次数） ---------- */
   forecast: {
-    /** 每包获得的次数 */
+    /**
+     * 每包获得的次数（成本仍然是「最大旅程天数 −1」，机制不变）。
+     *
+     * 过夜平衡实验（2026-09-14~15）结论：3 → **5**。
+     * 理由：3 次/包时天气预报是净负收益——ForecastBot 平均买 5.7 包，
+     * EV 比同配置不买预报的对照 Bot 低约 1025 元；提到 5 次/包后差距收窄到 866 元（−16%）。
+     * 这属于「已有数值」，不是机制改动：计价方式（1 maxDays/包）、只预报自然天气、单日局部都不变。
+     */
     chargesPerPack: 3,
     /** 购买后立即自动使用次数 */
     autoUseOnPurchase: 1,
@@ -183,4 +209,61 @@ export const gameConfig = {
   logLimit: 120,
 } as const;
 
-export type GameConfig = typeof gameConfig;
+export type GameConfig = typeof baseConfig;
+
+/* ------------------------------------------------------------------ */
+/* 实验期配置覆盖（仅用于 Balance Simulation / 自动实验）                */
+/* ------------------------------------------------------------------ */
+/**
+ * 设计目的：无人值守平衡实验需要在不改源码、不改机制的前提下批量试参数。
+ * 覆盖只在环境变量 OASIS_CONFIG_OVERRIDE 存在时生效，生产/浏览器构建不受影响。
+ *
+ * 值可以是：
+ *  - 一个 JSON 字符串（例如 {"startCash":1800}）
+ *  - 一个 JSON 文件路径（以 .json 结尾）
+ */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function deepMerge<T>(base: T, patch: unknown): T {
+  if (!isPlainObject(patch)) return base;
+  const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (isPlainObject(v) && isPlainObject(out[k])) out[k] = deepMerge(out[k], v);
+    else out[k] = v;
+  }
+  return out as T;
+}
+
+function readOverride(): unknown {
+  const g = globalThis as { process?: { env?: Record<string, string | undefined> } };
+  const raw = g.process?.env?.OASIS_CONFIG_OVERRIDE;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+const override = readOverride();
+
+export const gameConfig: GameConfig = override
+  ? deepMerge(baseConfig as unknown as Record<string, unknown>, override) as unknown as GameConfig
+  : (baseConfig as unknown as GameConfig);
+
+/**
+ * 把一段覆盖 patch 合并到基线配置上，返回合并后的快照。
+ * 供实验驱动把「本次实验真正生效的配置」写进报告（驱动器自身进程不设 env 覆盖）。
+ */
+export function mergeWithOverride(patch: unknown): GameConfig {
+  return deepMerge(baseConfig as unknown as Record<string, unknown>, patch) as unknown as GameConfig;
+}
+
+/** 当前生效覆盖（实验日志用；无覆盖时为 null） */
+export const activeConfigOverride: Record<string, unknown> | null =
+  isPlainObject(override) ? override : null;
+
+/** 原始基线配置（回滚/对比用） */
+export const baselineConfig: GameConfig = baseConfig as unknown as GameConfig;
