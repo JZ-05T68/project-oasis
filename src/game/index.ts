@@ -20,8 +20,23 @@ export {
 } from './engine/engine';
 export { starLabel } from './rules/routeScore';
 export { weatherNames } from './rules/weather';
-export { tentLabel } from './rules/equipment';
-export { generateWorld } from './map/generate';
+export {
+  tentLabel,
+  tentName,
+  tentIdOf,
+  tentSerialOf,
+  totalTentCharges,
+  findTent,
+  lowestDurabilityTentId,
+} from './rules/equipment';
+export {
+  generateWorld,
+  computeGemPrice,
+  mineLegalRows,
+  mineLegalRowRange,
+  cityCoords,
+  mineCol,
+} from './map/generate';
 export { tileIdOf, parseTileId, gridNeighbors, manhattan } from './map/grid';
 export { gameConfig } from './config/gameConfig';
 export { randomSeed } from './random/rng';

@@ -1,4 +1,4 @@
-import type { GameState, TileId } from '../types';
+import type { GameMap, GameState, TileId } from '../types';
 import { bfsPath, enumeratePaths, gridNeighbors, isNormalTile, manhattan } from '../map/grid';
 import { gameConfig } from '../config/gameConfig';
 
@@ -46,17 +46,47 @@ export function returnForbiddenTiles(state: GameState): TileId[] {
   );
 }
 
-/** 从当前位置是否存在合法回城路径（BFS） */
+/**
+ * 返程可通行节点过滤（v0.1.2b 修正）：
+ * - `mineId`（当前矿区 / 目标矿区）**豁免**，可以作为通路再次经过；
+ * - 其它矿区不可作为通路（进入即触发进矿）。
+ *
+ * 修正前 `hasLegalReturnPath / evaluateViability` 把两座矿区都当作不可通行节点，
+ * 会把「离开矿区后必须重新穿过当前矿区才能绕行」的合法局面误判为无路可走
+ * （在小地图上尤其容易出现：去程沿整行推进会在该行形成一道"烧格墙"）。
+ */
+export function returnViaFilterExcept(map: GameMap, mineId: TileId | null): (id: TileId) => boolean {
+  const blocked = map.mines.filter((m) => m.tileId !== mineId).map((m) => m.tileId);
+  if (blocked.length === 0) return () => true;
+  return (id: TileId) => !blocked.includes(id);
+}
+
+/** 从当前位置是否存在合法回城路径（BFS，当前矿区可穿透，其它矿区禁行） */
 export function hasLegalReturnPath(state: GameState): boolean {
   if (state.status !== 'ONGOING') return false;
   if (state.phase === 'OUTBOUND') return true; // 去程不做返程判定
-  return bfsPath(state.map, state.position, state.map.cityId, returnForbiddenTiles(state)) !== null;
+  return (
+    bfsPath(
+      state.map,
+      state.position,
+      state.map.cityId,
+      returnForbiddenTiles(state),
+      returnViaFilterExcept(state.map, state.mineEntranceId),
+    ) !== null
+  );
 }
 
 /** 枚举从矿区出发的合法返程路径（不含矿区，含城市），供风险评分使用 */
 export function enumerateReturnPathsFromMine(state: GameState, limit: number) {
   const forbidden = state.visitedOutbound.filter((id) => isNormalTile(state.map, id));
-  return enumeratePaths(state.map, state.position, state.map.cityId, forbidden, limit);
+  return enumeratePaths(
+    state.map,
+    state.position,
+    state.map.cityId,
+    forbidden,
+    limit,
+    returnViaFilterExcept(state.map, state.mineEntranceId),
+  );
 }
 
 /** 情报揭示半径（曼哈顿距离，格） */

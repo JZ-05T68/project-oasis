@@ -2,10 +2,12 @@ import {
   getCurrentWeather,
   getAvailableActions,
   starLabel,
+  tentName,
   weatherNames,
+  gameConfig,
 } from '../game';
 import { computeStarRating } from '../game/rules/routeScore';
-import type { ActionInfo, GameState } from '../game/types';
+import type { ActionInfo, GameState, TentItem } from '../game/types';
 
 interface Props {
   game: GameState;
@@ -76,26 +78,30 @@ export default function SidePanel({ game, onAction }: Props) {
         <h3 className="panel-title">可执行行动</h3>
         {actions.length === 0 && <p className="modal-desc">沿蓝色虚线轨迹返回城市。</p>}
         {actions.flatMap((a, ai) => {
-          // 需要帐篷的行动：多顶帐篷时逐顶展开，由玩家选择使用哪一顶
-          if (a.needsTent && !a.disabled && game.tents.length > 1) {
-            return game.tents.map((dur, ti) => (
-              <button
-                key={`${a.action.type}-${a.action.item ?? ''}-t${ti}`}
-                className={`action-btn ${a.action.type === 'MINE' || a.action.type === 'START_RETURN' ? 'primary' : ''}`}
-                onClick={() => onAction({ ...a.action, tentIndex: ti })}
-              >
-                {a.label} · 用 Tent {String.fromCharCode(65 + ti)}（{dur}/3）
-                {a.hint && <span className="hint">{a.hint}</span>}
-              </button>
-            ));
+          const keyBase = `${a.action.type}-${a.action.item ?? ''}-${ai}`;
+          // 需要帐篷的行动：逐顶展开，由玩家选择使用哪一顶。
+          // v0.1.2b：按钮回传帐篷稳定 ID（tentId），不再用 array index —— 帐篷会被
+          // 消耗/报废导致列表重排，下标会指向错误的帐篷。
+          if (a.needsTent && !a.disabled && game.tents.length > 0) {
+            return [
+              <div className="tent-choice-list panel-tent-list" key={`${keyBase}-tents`}>
+                <div className="tent-choice-head">
+                  {a.label}
+                  {a.hint && <span className="hint">{a.hint}</span>}
+                </div>
+                {game.tents.map((t) => (
+                  <TentChoiceButton key={`${keyBase}-${t.id}`} tent={t} action={a} onAction={onAction} />
+                ))}
+              </div>,
+            ];
           }
-          const needsAutoTent = a.needsTent && !a.disabled && game.tents.length === 1;
           return [
             <button
-              key={`${a.action.type}-${a.action.item ?? ''}-${ai}`}
+              key={keyBase}
+              type="button"
               className={`action-btn ${a.action.type === 'MINE' || a.action.type === 'START_RETURN' ? 'primary' : ''}`}
               disabled={a.disabled}
-              onClick={() => onAction(needsAutoTent ? { ...a.action, tentIndex: 0 } : a.action)}
+              onClick={() => onAction(a.action)}
             >
               {a.label}
               {a.hint && <span className="hint">{a.hint}</span>}
@@ -122,6 +128,33 @@ export default function SidePanel({ game, onAction }: Props) {
         </ul>
       </div>
     </div>
+  );
+}
+
+/**
+ * 单顶帐篷的行动按钮（v0.1.2b）。
+ * 关键：回传的是帐篷稳定 ID，不是列表下标；帐篷被消耗后列表重排也不会错位。
+ */
+function TentChoiceButton({
+  tent,
+  action,
+  onAction,
+}: {
+  tent: TentItem;
+  action: ActionInfo;
+  onAction: (action: ActionInfo['action']) => void;
+}) {
+  const max = gameConfig.tentDesertCharges;
+  const primary = action.action.type === 'MINE' || action.action.type === 'START_RETURN';
+  return (
+    <button
+      type="button"
+      className={`action-btn ${primary ? 'primary' : ''}`}
+      data-tentid={tent.id}
+      onClick={() => onAction({ ...action.action, tentId: tent.id })}
+    >
+      {action.label} · 用 {tentName(tent.id)}（{tent.charges}/{max}）
+    </button>
   );
 }
 

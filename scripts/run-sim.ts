@@ -4,7 +4,7 @@
  * 用法：
  *   npm run sim                                # 默认：全部 Bot × 1000 seeds，输出到 reports/sim/
  *   npm run sim -- --runs 10000                # 每个 Bot 10000 seeds
- *   npm run sim -- --bots RandomBot,NorthMineBot
+ *   npm run sim -- --bots RandomBot,ReasonablePlayerBot
  *   npm run sim -- --runs 10000 --workers 8 --seedPrefix bal --outputDir reports/baseline
  */
 import { spawn } from 'node:child_process';
@@ -97,7 +97,7 @@ function botSummaryRows(summaries: BotSummary[]): Array<Record<string, unknown>>
     avgOutboundDays: s.avgOutboundDays,
     avgMiningDays: s.avgMiningDays,
     avgReturnDays: s.avgReturnDays,
-    avgForecastCount: s.avgForecastCount,
+    avgForecastPacks: s.avgForecastPacks,
     avgTentsBought: s.avgTentsBought,
     avgCompassesBought: s.avgCompassesBought,
     avgTentUses: s.avgTentUses,
@@ -105,9 +105,8 @@ function botSummaryRows(summaries: BotSummary[]): Array<Record<string, unknown>>
     avgEquipmentSpent: s.avgEquipmentSpent,
     equipmentWasteRatePct: s.equipmentWasteRate,
     avgRouteScore: s.avgRouteScore,
-    mineS: s.mineVisits['mineS'] ?? 0,
-    mineC: s.mineVisits['mineC'] ?? 0,
-    mineN: s.mineVisits['mineN'] ?? 0,
+    mineAVisits: Object.values(s.mineVisits).reduce((a, b) => a + b, 0) ? (s.mineVisits[Object.keys(s.mineVisits)[0]] ?? 0) : 0,
+    mineDistinct: Object.keys(s.mineVisits).length,
   }));
 }
 
@@ -235,13 +234,13 @@ function writeReports(
   lines.push('');
   lines.push(`- 生成时间：${new Date().toISOString()}`);
   lines.push(`- 规模：${meta.bots.length} 个 Bot × ${meta.runs} seeds（seed 形如 ${meta.seedPrefix}:<Bot>:<i>）`);
-  lines.push(`- 版本：v0.1.1 固定矿区定价（南 100 / 中 180 / 北 280），市场系数关闭 = ${!gameConfig.marketEnabled}`);
+  lines.push(`- 版本：v0.1.2b 地图 ${gameConfig.map.rows}×${gameConfig.map.cols} / 宝石单价 = 客观往返难度映射（base=${gameConfig.mineValuation.base}, scale=${gameConfig.mineValuation.scale}, clamp=${gameConfig.mineValuation.clampMin}~${gameConfig.mineValuation.clampMax}）`);
   lines.push('');
   lines.push('| Bot | 胜率% | EV(全部局净收益) | 胜局均收益 | 胜局中位资产 | 超时% | 耐力% | 断路% | 困死% | 平均挖矿天 | 平均预报次 | 帐篷/指南针购买 | 装备浪费% |');
   lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
   for (const s of sorted) {
     lines.push(
-      `| ${s.bot} | ${s.winRate} | ${s.evNetProfitAllRuns} | ${s.avgNetProfitWins} | ${s.finalAssetsWins.median} | ${s.failureRates.TIMEOUT} | ${s.failureRates.STAMINA_EXHAUSTED} | ${s.failureRates.RETURN_ROUTE_SEVERED} | ${s.failureRates.TRAPPED} | ${s.avgMiningDays} | ${s.avgForecastCount} | ${s.avgTentsBought}/${s.avgCompassesBought} | ${s.equipmentWasteRate} |`,
+      `| ${s.bot} | ${s.winRate} | ${s.evNetProfitAllRuns} | ${s.avgNetProfitWins} | ${s.finalAssetsWins.median} | ${s.failureRates.TIMEOUT} | ${s.failureRates.STAMINA_EXHAUSTED} | ${s.failureRates.RETURN_ROUTE_SEVERED} | ${s.failureRates.TRAPPED} | ${s.avgMiningDays} | ${s.avgForecastPacks} | ${s.avgTentsBought}/${s.avgCompassesBought} | ${s.equipmentWasteRate} |`,
     );
   }
   lines.push('');

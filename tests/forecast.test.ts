@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { performMove, performAction, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
 import { bfsPath } from '../src/game/map/grid';
-import { newGame, calmOverrides, mutate, walkTo } from './helpers';
+import { newGame, calmOverrides, mutate, walkTo, mkTents, TENT_A } from './helpers';
 
 /** 天气预报（v0.1.2）：单日局部 + 可储存次数 */
 describe('天气预报：购买机制', () => {
@@ -150,7 +150,7 @@ describe('天气预报：等待避灾配合', () => {
   it('停留决策依赖预报：预报显示当前格明天沙尘暴时，玩家可提前得知', () => {
     let s = newGame('fc-wait-storm');
     s = mutate(s, (m) => {
-      m.tents = [3]; // 野外宿营需要帐篷
+      m.tents = mkTents([3]); // 野外宿营需要帐篷
     });
     const legal = getLegalMoves(s);
     const target = legal[0];
@@ -164,7 +164,7 @@ describe('天气预报：等待避灾配合', () => {
     const cell = s.lastForecast!.cells.find((c) => c.isCurrent)!;
     expect(cell.weather).toBe('SANDSTORM');
     // 玩家此时可以选择宿营避雨——宿营当天将触发沙尘暴 Modal
-    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
+    s = performAction(s, { type: 'WAIT', tentId: TENT_A });
     expect(s.pendingEvents[0]?.kind ?? '').toBe('SANDSTORM');
   });
 

@@ -5,17 +5,42 @@ import {
   GameAction,
   GameState,
   GameMap,
+  TentItem,
   TileId,
   TerrainType,
   WeatherType,
 } from '../src/game/types';
 import { bfsPath, gridNeighbors, isNormalTile } from '../src/game/map/grid';
-import { lowestDurabilityIndex } from '../src/game/rules/equipment';
+import { lowestDurabilityTentId, tentIdOf } from '../src/game/rules/equipment';
 import { WEATHER_TABLE_DAYS } from '../src/game/rules/weather';
 
 /** 创建新游戏（默认固定 Seed） */
 export function newGame(seed = 'test-seed', opts: CreateGameOptions = {}): GameState {
   return createNewGame(seed, opts);
+}
+
+/**
+ * 构造帐篷列表（v0.1.2b：稳定唯一 ID）。
+ * `mkTents([3, 2, 1, 3])` → Tent A 3/3、B 2/3、C 1/3、D 3/3（ID = tent-001…tent-004）。
+ */
+export function mkTents(charges: number[], startSerial = 1): TentItem[] {
+  return charges.map((c, i) => ({ id: tentIdOf(startSerial + i), charges: c }));
+}
+
+/** 常用帐篷 ID 常量（与 mkTents 默认 startSerial=1 对应） */
+export const TENT_A = tentIdOf(1);
+export const TENT_B = tentIdOf(2);
+export const TENT_C = tentIdOf(3);
+export const TENT_D = tentIdOf(4);
+
+/** 帐篷剩余耐久序列（断言用） */
+export function charges(tents: TentItem[]): number[] {
+  return tents.map((t) => t.charges);
+}
+
+/** 帐篷 ID 序列（断言用） */
+export function tentIds(tents: TentItem[]): string[] {
+  return tents.map((t) => t.id);
 }
 
 /** 全图晴朗 + 无遭遇 + 无干涸的覆盖表 */
@@ -56,12 +81,12 @@ export function findTiles(state: GameState, terrain: TerrainType): TileId[] {
 function defaultEventChoice(state: GameState): EventChoice | null {
   const ev = state.pendingEvents[0];
   if (!ev) return null;
-  const tentIdx = state.tents.length > 0 ? lowestDurabilityIndex(state.tents) : undefined;
+  const tentId = lowestDurabilityTentId(state.tents);
   switch (ev.kind) {
     case 'SANDSTORM':
-      return { kind: 'SANDSTORM', useTent: state.tents.length > 0, useCompass: state.compasses > 0, tentIndex: tentIdx };
+      return { kind: 'SANDSTORM', useTent: state.tents.length > 0, useCompass: state.compasses > 0, tentId };
     case 'RAINSTORM':
-      return { kind: 'RAINSTORM', useTent: state.tents.length > 0, tentIndex: tentIdx };
+      return { kind: 'RAINSTORM', useTent: state.tents.length > 0, tentId };
     case 'CARAVAN':
       return state.cash >= 300 && state.tents.length === 0
         ? { kind: 'CARAVAN', action: 'BUY_TENT' }

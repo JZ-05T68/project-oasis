@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, performAction, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
-import { newGame, calmOverrides, walkTo, walk, mutate, mineTile, nearestMineTile, act, returnPath } from './helpers';
+import { newGame, calmOverrides, walkTo, walk, mutate, mineTile, nearestMineTile, act, returnPath, mkTents } from './helpers';
 import { gameConfig } from '../src/game/config/gameConfig';
 
 function gotoMineA(seed: string) {
@@ -28,7 +28,7 @@ describe('矿区：进入与价格隐藏（v0.1.2a）', () => {
     s = mutate(s, (m) => {
       m.cash = 1000;
       m.stamina = 2;
-      m.tents = [3];
+      m.tents = mkTents([3]);
       m.compasses = 1;
     });
     s = walkTo(s, nearestMineTile(s).tileId);

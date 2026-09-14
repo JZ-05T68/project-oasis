@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, getLegalMoves, resolvePendingEvent } from '../src/game';
 import { GameError } from '../src/game/types';
-import { newGame, calmOverrides, mutate, withWeather, nearestTileOf, pathTo, walk } from './helpers';
+import { newGame, calmOverrides, mutate, withWeather, nearestTileOf, pathTo, walk, mkTents, charges, TENT_A } from './helpers';
 
 /** 天气系统（沙漠高温/沙尘暴、草地暴雨/泥沼）与装备（帐篷/指南针） */
 
@@ -9,7 +9,7 @@ import { newGame, calmOverrides, mutate, withWeather, nearestTileOf, pathTo, wal
 function stormScenario(seed: string, tents: number[], compasses: number) {
   let s = newGame(seed, calmOverrides(newGame(seed).map));
   s = mutate(s, (m) => {
-    m.tents = tents;
+    m.tents = mkTents(tents);
     m.compasses = compasses;
   });
   const target = nearestTileOf(s, 'DESERT');
@@ -25,7 +25,7 @@ function stormScenario(seed: string, tents: number[], compasses: number) {
 function rainScenario(seed: string, tents: number[]) {
   let s = newGame(seed, calmOverrides(newGame(seed).map));
   s = mutate(s, (m) => {
-    m.tents = tents;
+    m.tents = mkTents(tents);
   });
   const target = nearestTileOf(s, 'GRASS');
   const path = pathTo(s, target);
@@ -41,8 +41,8 @@ describe('沙尘暴：四象限（帐篷 × 指南针）', () => {
     const { s, day } = stormScenario('storm-1', [3], 1);
     expect(s.pendingEvents[0].kind).toBe('SANDSTORM');
     const ev = s.pendingEvents[0];
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: true, tentIndex: 0 });
-    expect(s2.tents).toEqual([2]);
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: true, tentId: TENT_A });
+    expect(charges(s2.tents)).toEqual([2]);
     expect(s2.compasses).toBe(0);
     expect(s2.stamina).toBe(5);
     expect(s2.daysUsed).toBe(day); // 无额外损失
@@ -52,8 +52,8 @@ describe('沙尘暴：四象限（帐篷 × 指南针）', () => {
   it('有帐篷 + 不用指南针：不掉耐力，帐篷 -1，迷路额外损失 1 天', () => {
     const { s, day } = stormScenario('storm-2', [3], 0);
     const ev = s.pendingEvents[0];
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentIndex: 0 });
-    expect(s2.tents).toEqual([2]);
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentId: TENT_A });
+    expect(charges(s2.tents)).toEqual([2]);
     expect(s2.stamina).toBe(5);
     expect(s2.daysUsed).toBe(day + 1); // 迷路 +1 天
     expect(s2.position).toBe(s.position); // 迷路不传送
@@ -79,22 +79,22 @@ describe('沙尘暴：四象限（帐篷 × 指南针）', () => {
   it('帐篷 3 次沙漠耐久：第 3 次抵挡后整顶消失', () => {
     const { s } = stormScenario('storm-deplete', [1], 0);
     const ev = s.pendingEvents[0];
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentIndex: 0 });
-    expect(s2.tents).toEqual([]); // 1 → 0 → 整顶消失
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentId: TENT_A });
+    expect(charges(s2.tents)).toEqual([]); // 1 → 0 → 整顶消失
     expect(s2.stamina).toBe(5); // 帐篷抵挡过，不掉耐力
   });
 
   it('拥有装备时引擎必须询问玩家，绝不自动消耗', () => {
     const { s } = stormScenario('storm-ask', [3], 1);
     expect(s.pendingEvents.length).toBe(1);
-    expect(s.tents).toEqual([3]);
+    expect(charges(s.tents)).toEqual([3]);
     expect(s.compasses).toBe(1);
   });
 
   it('没有对应装备时选择无效并抛错', () => {
     const { s } = stormScenario('storm-invalid', [], 0);
     const ev = s.pendingEvents[0];
-    expect(() => resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentIndex: 0 })).toThrow(GameError);
+    expect(() => resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: true, useCompass: false, tentId: TENT_A })).toThrow(GameError);
     expect(() => resolvePendingEvent(s, ev.id, { kind: 'SANDSTORM', useTent: false, useCompass: true })).toThrow(GameError);
   });
 });
@@ -104,8 +104,8 @@ describe('草地暴雨：整顶帐篷的取舍', () => {
     const { s } = rainScenario('rain-1', [2, 3]);
     const ev = s.pendingEvents[0];
     expect(ev.kind).toBe('RAINSTORM');
-    const s2 = resolvePendingEvent(s, ev.id, { kind: 'RAINSTORM', useTent: true, tentIndex: 0 });
-    expect(s2.tents).toEqual([3]); // 耐久最低的一顶被整顶消耗
+    const s2 = resolvePendingEvent(s, ev.id, { kind: 'RAINSTORM', useTent: true, tentId: TENT_A });
+    expect(charges(s2.tents)).toEqual([3]); // 被选中的那顶整顶消失
     expect(s2.stamina).toBe(5);
   });
 
@@ -113,7 +113,7 @@ describe('草地暴雨：整顶帐篷的取舍', () => {
     const { s } = rainScenario('rain-2', [3]);
     const ev = s.pendingEvents[0];
     const s2 = resolvePendingEvent(s, ev.id, { kind: 'RAINSTORM', useTent: false });
-    expect(s2.tents).toEqual([3]);
+    expect(charges(s2.tents)).toEqual([3]);
     expect(s2.stamina).toBe(4);
   });
 

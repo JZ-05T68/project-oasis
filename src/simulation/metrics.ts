@@ -10,6 +10,13 @@ export interface RunResult {
   error: string | null;
 
   mineId: TileId | null;
+  /**
+   * 该矿区「最短合法往返方案」的客观危险程度与品质 jitter（v0.1.2b）。
+   * 价格完全由这两项决定，与玩家行为无关；记录下来后可以在不重跑对局的前提下
+   * 离线扫描不同的 (base, scale, clamp) 定价参数。
+   */
+  mineDifficulty: number | null;
+  mineJitter: number | null;
   routeScore: number | null;
   daysUsed: number;
   outboundDays: number | null;

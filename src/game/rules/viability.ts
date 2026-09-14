@@ -1,5 +1,6 @@
 import type { GameState, TileId } from '../types';
 import { bfsPath, isNormalTile } from '../map/grid';
+import { returnViaFilterExcept } from './movement';
 
 /**
  * v0.1.2a 提前判负裁判（内部信息，绝不向玩家展示数值）。
@@ -11,6 +12,11 @@ import { bfsPath, isNormalTile } from '../map/grid';
  * 去程用最短路（忽略新去程对返程的烧格影响），因此
  * lowerBound ≤ 真实最短合法完成天数，绝不会误判必败。
  * 返程/矿区阶段使用精确 BFS（烧格集合已完全确定）。
+ *
+ * v0.1.2b 修正：返程通行的矿区豁免必须与 `getLegalMoves` 完全一致——
+ * 当前矿区可穿透（豁免），只有另一座矿区不可作为通路。
+ * 修正前两座矿区都被当作不可通行节点，会把
+ * 「离开矿区后需要再次穿过当前矿区绕行」的合法局面误判为 NO_LEGAL_ROUTE。
  */
 
 export type ViabilityVerdict =
@@ -25,13 +31,11 @@ export function evaluateViability(state: GameState): ViabilityVerdict {
   const burned = [...state.visitedOutbound, ...state.visitedReturn].filter((id) =>
     isNormalTile(state.map, id),
   );
-  const otherMineOf = (mineId: TileId) =>
-    state.map.mines.filter((m) => m.tileId !== mineId).map((m) => m.tileId);
+  /** 返程/矿区阶段：当前矿区豁免、其它矿区禁行（与 getLegalMoves 一致） */
+  const returnFilter = returnViaFilterExcept(state.map, state.mineEntranceId);
 
   if (state.phase === 'RETURN') {
-    const d = bfsPath(state.map, state.position, state.map.cityId, burned, (id) =>
-      state.map.mines.every((m) => m.tileId !== id),
-    );
+    const d = bfsPath(state.map, state.position, state.map.cityId, burned, returnFilter);
     if (!d) return { ok: false, reason: 'NO_LEGAL_ROUTE' };
     if (d.length - 1 > remaining) return { ok: false, reason: 'INSUFFICIENT_TIME' };
     return { ok: true };
@@ -39,9 +43,7 @@ export function evaluateViability(state: GameState): ViabilityVerdict {
 
   if (state.phase === 'MINING') {
     // 挖矿 0 天立即返程是合法选项：从当前矿区回城即可
-    const d = bfsPath(state.map, state.position, state.map.cityId, burned, (id) =>
-      state.map.mines.every((m) => m.tileId !== id),
-    );
+    const d = bfsPath(state.map, state.position, state.map.cityId, burned, returnFilter);
     if (!d) return { ok: false, reason: 'NO_LEGAL_ROUTE' };
     if (d.length - 1 > remaining) return { ok: false, reason: 'INSUFFICIENT_TIME' };
     return { ok: true };
@@ -52,7 +54,7 @@ export function evaluateViability(state: GameState): ViabilityVerdict {
   let anyReachable = false;
   for (const mine of state.map.mines) {
     const mineId = mine.tileId;
-    const others = otherMineOf(mineId);
+    const others = otherMineOf(state, mineId);
     // 去程：不能重走去程普通格、不能中途回城、不能穿过另一个矿区
     const d1 = bfsPath(state.map, state.position, mineId, burnedOutboundOnly(state), (id) => {
       if (id === state.map.cityId) return false; // 去程不允许中途回城
@@ -60,9 +62,13 @@ export function evaluateViability(state: GameState): ViabilityVerdict {
     });
     if (!d1) continue;
     anyReachable = true;
-    // 乐观返程：只烧掉既有足迹，不烧新去程（下界）
-    const d2 = bfsPath(state.map, mineId, state.map.cityId, burned, (id) =>
-      state.map.mines.every((m) => m.tileId !== id),
+    // 乐观返程：只烧掉既有足迹，不烧新去程（下界）；目的矿区豁免，另一矿区禁行
+    const d2 = bfsPath(
+      state.map,
+      mineId,
+      state.map.cityId,
+      burned,
+      returnViaFilterExcept(state.map, mineId),
     );
     if (!d2) continue; // 该矿在乐观口径下都无法返城 → 该方案不可行
     const lower = d1.length - 1 + d2.length - 1;
@@ -76,6 +82,10 @@ export function evaluateViability(state: GameState): ViabilityVerdict {
     return { ok: false, reason: 'INSUFFICIENT_TIME' };
   }
   return { ok: true };
+}
+
+function otherMineOf(state: GameState, mineId: TileId): TileId[] {
+  return state.map.mines.filter((m) => m.tileId !== mineId).map((m) => m.tileId);
 }
 
 function burnedOutboundOnly(state: GameState): TileId[] {

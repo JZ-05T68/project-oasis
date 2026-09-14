@@ -81,3 +81,54 @@
 - 完整报告与调参日志：docs/BALANCE_REPORT_v0.1.1.md、docs/BALANCE_LOG.md、reports/。
 - 新增 14 条仿真相关测试（防作弊/合法性/复现/统计正确性），总计 118 条全绿。
 - STATUS = READY_FOR_HUMAN_PLAYTEST
+
+## 2026-09-14 · v0.1.2b Human Playtest Fix Round 1
+
+第一次真人试玩反馈的定向修复（不新增玩法/事件/装备，不顺手改其它数值）。
+
+### 1. 地图 10×12 → 8×9
+- 城市 (7,0)；矿区固定最右列 `col=8`、合法行 `[0,5]`（禁止 row 6/7，避免刷到右下导致远征过短）；
+  最小行距 4 → 3（8×9 下合法行只剩 6 行，沿用 4 会让 row 2/3 永远不出现，属最小必要调整）。
+- 尺寸相关数值全部从 `gameConfig.map` 派生；新增 `mineLegalRows()/cityCoords()/mineCol()`，
+  测试断言派生化，3000 Seed 扫描 100% 生成成功且约束全满足。
+
+### 2. P0：多顶帐篷后部按钮点不到（浏览器实测复现 + 修复）
+- 用真实 Chromium 复现：视口 1280×420 时，沙尘暴 Modal 的 Tent C 第二个按钮 / Tent D 两个按钮
+  完全落在 `.modal-body` 的滚动裁剪区之外，`elementFromPoint` 命中 `.modal-backdrop` 或 null
+  —— 这正好对应真人反馈的"前两顶能点、后两顶点不动"。
+- 修复：Modal 高度 `85vh → min(88vh, 100%)`、遮罩 padding 收敛、逐顶选项改紧凑行布局
+  （选项列表高度约降到 1/3）、内容溢出时必须出现可点击的滚动提示条；规则页确认按钮移出滚动区。
+- 同时把帐篷从 array index 改为稳定唯一 ID（`tent-001`…）：
+  引擎只接受 `tentId`，新增 `TENT_REQUIRED / TENT_NOT_FOUND` 明确错误码；展示名由 ID 派生，
+  列表重排后编号不会指向别的帐篷。
+
+### 3. 提前判负误判（小地图上暴露出来的真问题）
+- 写 4 顶帐篷专项测试时发现：`evaluateViability` 把两座矿区都当成不可通行节点，
+  而 `getLegalMoves` 允许重入当前矿区。去程沿整行推进会烧出一道"墙"，返程只能借道当前矿区绕行，
+  修正前直接判 `NO_LEGAL_ROUTE`。已抽出 `returnViaFilterExcept()` 统一口径，
+  并同步 `hasLegalReturnPath` / `routeScore` / Bot 侧寻路。
+
+### 4. 宝石经济重新标定
+- 8×9 把客观难度分从 ~120~230 压到 p10/中位/p90 = 16/40.5/63.5；
+  沿用 `base=10 / 下限=80` 会让 **39.5%** 的矿区钉在 80 元/kg、均价只有 100 元/kg。
+- 保留斜率 2.0 与上限 320，只把截距与下限重锚到 140 → p10/中位/p90 = 172/221/267 元/kg，
+  触底 1.75%、触顶 0.21%。
+- 3000 局标定（8 Bot × 3000 Seeds，`scripts/economy-calibrate.ts`）：
+  ReasonablePlayerBot 胜率 95.07%、成功局盈利占比 **99.96%**、中位净收益 +3880（p10 +2018）；
+  「只挖 1 天 + 常规装备」= -458 元、CheapBot EV 1177、GreedyMinerBot 胜率 48.3% → 亏损空间仍在，
+  没有任何全局保底。
+
+### 5. 浏览器逐按钮点击审计
+- 新增 `scripts/run-browser-audit.sh`：agent-browser + 真实 Chromium，5 个场景
+  （menu / storm / rain / oasis / oasisdry），对每个控件做
+  存在性 → disabled → 指针命中（不滚动 / 滚动后）→ 真实点击 → 状态指纹比对。
+- 结果：**119 项控件检查全部通过、0 失败、控制台 0 错误**；
+  1280×470 矮窗口下沙尘暴 Modal 的 4 顶帐篷按钮依旧全部指针可达。
+- 报告：`reports/audit/SUMMARY.md`。
+
+### 6. 一键启动
+- `START_PROJECT_OASIS.bat` 改用 `%~dp0`；实测 5173 被占用时 Vite 自动顺延到 5174 并
+  用实际端口打开浏览器。当前入口 `http://127.0.0.1:5173/`（直接进入规则页）。
+
+- `npm test` 147 → **200 条全绿**（13 个测试文件）；`npm run build` 通过。
+- STATUS = READY_FOR_HUMAN_PLAYTEST_ROUND_2

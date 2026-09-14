@@ -1,39 +1,92 @@
 import { describe, it, expect } from 'vitest';
-import { generateWorld } from '../src/game/map/generate';
+import { generateWorld, mineLegalRows, mineLegalRowRange, cityCoords, mineCol } from '../src/game/map/generate';
 import { existsPathExcluding, gridNeighbors } from '../src/game/map/grid';
 import { gameConfig } from '../src/game/config/gameConfig';
 
-describe('v0.1.2 随机地图生成', () => {
-  it('地图尺寸固定为 10×12', () => {
+/**
+ * v0.1.2b 地图生成（真人试玩修正版）。
+ * 所有尺寸断言都从 gameConfig.map 派生，并把新人肉试玩约束写死为回归测试：
+ * 8×9 / 城市 (7,0) / 矿区 col=8 且 row ∈ [0,5]（禁止 row 6、7）。
+ */
+
+const CFG = gameConfig.map;
+const LEGAL_ROWS = (() => {
+  const out: number[] = [];
+  for (let r = mineLegalRowRange().min; r <= mineLegalRowRange().max; r++) out.push(r);
+  return out;
+})();
+
+describe('v0.1.2b 随机地图生成', () => {
+  it('地图尺寸固定为 8×9（72 格），且配置与生成结果一致', () => {
     const m = generateWorld('size-check');
-    expect(m.rows).toBe(10);
-    expect(m.cols).toBe(12);
-    expect(Object.keys(m.tiles).length).toBe(120);
-    expect(gameConfig.map.rows).toBe(10);
-    expect(gameConfig.map.cols).toBe(12);
+    expect(CFG.rows).toBe(8);
+    expect(CFG.cols).toBe(9);
+    expect(m.rows).toBe(CFG.rows);
+    expect(m.cols).toBe(CFG.cols);
+    expect(Object.keys(m.tiles).length).toBe(CFG.rows * CFG.cols);
+    expect(CFG.rows * CFG.cols).toBe(72);
   });
 
-  it('城市永远在左下角 (rows-1, 0)', () => {
+  it('城市永远在左下角 (7,0)', () => {
+    expect(cityCoords()).toEqual({ row: 7, col: 0 });
     for (const seed of ['s1', 's2', 's3']) {
       const m = generateWorld(seed);
       const c = m.tiles[m.cityId];
-      expect(c.row).toBe(9);
+      expect(c.row).toBe(7);
       expect(c.col).toBe(0);
       expect(c.terrain).toBe('CITY');
     }
   });
 
-  it('两矿区都位于最右列 (col = cols-1)，且不重合、保持最小行距', () => {
+  it('两矿区位于最右列 (col=8)，不重合并保持最小行距', () => {
     for (const seed of ['m1', 'm2', 'm3', 'm4', 'm5']) {
       const m = generateWorld(seed);
       expect(m.mines.length).toBe(2);
+      expect(mineCol()).toBe(8);
       const [a, b] = m.mines;
       for (const mine of m.mines) {
-        expect(mine.col).toBe(11);
+        expect(mine.col).toBe(8);
         expect(m.tiles[mine.tileId].terrain).toBe('MINE');
       }
       expect(a.tileId).not.toBe(b.tileId);
-      expect(Math.abs(a.row - b.row)).toBeGreaterThanOrEqual(gameConfig.map.mineMinRowGap);
+      expect(Math.abs(a.row - b.row)).toBeGreaterThanOrEqual(CFG.mineMinRowGap);
+    }
+  });
+
+  it('矿区合法行范围为 0~5，禁止出现在最下方两行 (row 6 / 7)', () => {
+    expect(mineLegalRowRange()).toEqual({ min: 0, max: 5 });
+    expect(mineLegalRows()).toEqual([0, 1, 2, 3, 4, 5]);
+    const forbidden = [CFG.rows - 2, CFG.rows - 1];
+    expect(forbidden).toEqual([6, 7]);
+    // 大规模扫描：任何 Seed 都不能把矿区放在右下两行
+    const seenRows = new Set<number>();
+    for (let i = 0; i < 200; i++) {
+      const m = generateWorld(`mine-rows-${i}`);
+      for (const mine of m.mines) {
+        expect(mine.col).toBe(8);
+        expect(forbidden).not.toContain(mine.row);
+        expect(LEGAL_ROWS).toContain(mine.row);
+        seenRows.add(mine.row);
+      }
+    }
+    // 合法行区间应被实际用到（不是只扎堆在两端）
+    expect([...seenRows].sort((x, y) => x - y)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('Seed 合法性扫描：大样本范围内 100% 生成成功且约束全满足', () => {
+    for (let i = 0; i < 300; i++) {
+      const seed = `valid-scan-${i}`;
+      const m = generateWorld(seed);
+      expect(m.mines.length).toBe(2);
+      const [a, b] = m.mines;
+      expect(Math.abs(a.row - b.row)).toBeGreaterThanOrEqual(CFG.mineMinRowGap);
+      expect(m.tiles[m.cityId].terrain).toBe('CITY');
+      // 每个矿区都必须有唯一合法往返方案（矿价评估阶段必然可解）
+      for (const mine of m.mines) {
+        expect(Number.isFinite(mine.gemPrice)).toBe(true);
+        expect(Number.isFinite(mine.detail.roundTripLength)).toBe(true);
+        expect(mine.detail.roundTripLength).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -41,6 +94,7 @@ describe('v0.1.2 随机地图生成', () => {
     const allowed = new Set(['GRASS', 'DESERT', 'VILLAGE', 'OASIS']);
     const counts: Record<string, number> = { GRASS: 0, DESERT: 0, VILLAGE: 0, OASIS: 0 };
     let total = 0;
+    const nonNormal = 3; // 城市 1 + 矿区 2
     for (let i = 0; i < 30; i++) {
       const m = generateWorld(`dist-${i}`);
       for (const tile of Object.values(m.tiles)) {
@@ -50,7 +104,7 @@ describe('v0.1.2 随机地图生成', () => {
         total += 1;
       }
     }
-    expect(total).toBe(30 * (120 - 3));
+    expect(total).toBe(30 * (CFG.rows * CFG.cols - nonNormal));
     for (const terrain of ['GRASS', 'DESERT', 'VILLAGE', 'OASIS'] as const) {
       expect(counts[terrain]).toBeGreaterThan(0);
       const share = counts[terrain] / total;
@@ -88,13 +142,14 @@ describe('v0.1.2 随机地图生成', () => {
 
   it('四方向邻接正确（角落 2 / 边缘 3 / 内部 4）', () => {
     const m = generateWorld('adj-check');
+    const last = `${CFG.rows - 1}:${CFG.cols - 1}`;
     expect(gridNeighbors(m, '0:0').length).toBe(2);
-    expect(gridNeighbors(m, '0:5').length).toBe(3);
-    expect(gridNeighbors(m, '5:5').length).toBe(4);
-    expect(gridNeighbors(m, '9:11').length).toBe(2);
+    expect(gridNeighbors(m, `0:${Math.floor(CFG.cols / 2)}`).length).toBe(3);
+    expect(gridNeighbors(m, '4:4').length).toBe(4);
+    expect(gridNeighbors(m, last).length).toBe(2);
   });
 
-  it('遭遇按 25% 基础概率预生成（统计抽样）', () => {
+  it('遭遇按配置基础概率预生成（统计抽样）', () => {
     let withEncounter = 0;
     let total = 0;
     for (let i = 0; i < 30; i++) {
@@ -152,19 +207,20 @@ describe('v0.1.2 随机地图生成', () => {
         if (d) dry += 1;
       }
     }
-    expect(total).toBeGreaterThan(50);
+    expect(total).toBeGreaterThan(20);
     expect(dry / total).toBeGreaterThan(0.05);
     expect(dry / total).toBeLessThan(0.4);
   });
 });
 
-describe('v0.1.2 矿区动态价值', () => {
-  it('价格在 80~320 区间内', () => {
+describe('v0.1.2b 矿区动态价值', () => {
+  it('价格在新区间内且两矿可能不同', () => {
+    const { clampMin, clampMax } = gameConfig.mineValuation;
     for (let i = 0; i < 30; i++) {
       const m = generateWorld(`price-${i}`);
       for (const mine of m.mines) {
-        expect(mine.gemPrice).toBeGreaterThanOrEqual(gameConfig.mineValuation.clampMin);
-        expect(mine.gemPrice).toBeLessThanOrEqual(gameConfig.mineValuation.clampMax);
+        expect(mine.gemPrice).toBeGreaterThanOrEqual(clampMin);
+        expect(mine.gemPrice).toBeLessThanOrEqual(clampMax);
       }
     }
   });
@@ -174,12 +230,26 @@ describe('v0.1.2 矿区动态价值', () => {
     const b = generateWorld('mine-price');
     expect(a.mines.map((m) => m.gemPrice)).toEqual(b.mines.map((m) => m.gemPrice));
     let differ = 0;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 60; i++) {
       const m = generateWorld(`differ-${i}`);
       if (m.mines[0].gemPrice !== m.mines[1].gemPrice) differ += 1;
     }
-    // v0.1.2a 价格更集中，允许部分对局两矿同价
-    expect(differ).toBeGreaterThanOrEqual(10);
+    // 新地图上两矿难度分布重叠更多，仍要求有相当比例的差异化定价
+    expect(differ).toBeGreaterThanOrEqual(15);
   });
 
+  it('最短合法往返长度落在地图尺寸允许的范围内（20~30）', () => {
+    let min = Infinity;
+    let max = 0;
+    for (let i = 0; i < 60; i++) {
+      const m = generateWorld(`len-${i}`);
+      for (const mine of m.mines) {
+        min = Math.min(min, mine.detail.roundTripLength);
+        max = Math.max(max, mine.detail.roundTripLength);
+      }
+    }
+    // 城市 (7,0) → 矿区 (r,8)：曼哈顿 = 15-r，r∈[0,5] ⇒ 单程 10~15 ⇒ 往返 20~30
+    expect(min).toBeGreaterThanOrEqual(20);
+    expect(max).toBeLessThanOrEqual(30);
+  });
 });

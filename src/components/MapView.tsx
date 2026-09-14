@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { getLegalMoves, isTerrainKnown } from '../game';
 import type { GameState, TerrainType, TileId } from '../game/types';
 
@@ -35,6 +36,7 @@ const TERRAIN_NAMES: Record<TerrainType, string> = {
 
 /** v0.1.2：CSS Grid 格子地图 */
 export default function MapView({ game, onMove }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const known = (id: TileId) => isTerrainKnown(game, id);
   const legal =
     game.status === 'ONGOING' && game.pendingEvents.length === 0
@@ -47,15 +49,26 @@ export default function MapView({ game, onMove }: Props) {
     a.row === b.row ? a.col - b.col : a.row - b.row,
   );
 
+  /**
+   * 窗口较矮时地图容器会出现内部滚动。把玩家当前格滚入可视区，
+   * 保证「当前位置 + 四个可点击邻格」永远在可点范围内（可达性审计要求）。
+   */
+  useEffect(() => {
+    const tile = scrollRef.current?.querySelector('.grid-tile.current');
+    if (tile instanceof HTMLElement) {
+      tile.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }, [game.position]);
+
   return (
     <div className="panel map-panel">
       <h3 className="panel-title">
         地图 · {game.map.rows}×{game.map.cols}（左下城市 · 右侧双矿）
       </h3>
-      <div className="grid-scroll">
+      <div className="grid-scroll" ref={scrollRef}>
         <div
           className="grid-map"
-          style={{ gridTemplateColumns: `repeat(${game.map.cols}, minmax(34px, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${game.map.cols}, minmax(30px, 1fr))` }}
           role="grid"
           aria-label="游戏地图"
         >

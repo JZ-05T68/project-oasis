@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { performMove, getLegalMoves, performAction } from '../src/game';
 import { GameError } from '../src/game/types';
 import type { CreateGameOptions } from '../src/game/types';
-import { newGame, calmOverrides, walk, walkTo, mutate, findTiles, mineTile } from './helpers';
+import { newGame, calmOverrides, walk, walkTo, mutate, findTiles, mineTile, mkTents, charges, TENT_A } from './helpers';
 import { gameConfig } from '../src/game/config/gameConfig';
 
 describe('核心引擎：初始状态', () => {
@@ -31,7 +31,7 @@ describe('核心引擎：初始状态', () => {
     let s = newGame('buy-city');
     s = performAction(s, { type: 'BUY', item: 'tent' });
     s = performAction(s, { type: 'BUY', item: 'compass' });
-    expect(s.tents).toEqual([gameConfig.tentDesertCharges]);
+    expect(charges(s.tents)).toEqual([gameConfig.tentDesertCharges]);
     expect(s.compasses).toBe(1);
     expect(s.cash).toBe(2000 - 400 - 100);
     expect(s.equipmentSpent).toBe(500);
@@ -49,12 +49,12 @@ describe('核心引擎：四方向移动与越界', () => {
     for (const id of legal) expect(neighbors.has(id)).toBe(true);
     // 越界目标不存在
     expect(legal).not.toContain('8:-1');
-    expect(legal).not.toContain('10:0');
+    expect(legal).not.toContain(`${gameConfig.map.rows}:0`); // 越界行
   });
 
   it('非法目标（不相邻）抛错', () => {
     const s = newGame('move-illegal');
-    expect(() => performMove(s, '0:11')).toThrow(GameError);
+    expect(() => performMove(s, `0:${gameConfig.map.cols - 1}`)).toThrow(GameError);
   });
 
   it('每移动一格消耗 1 天', () => {
@@ -193,7 +193,7 @@ describe('核心引擎：路线中断（无路可回）', () => {
     s = performAction(s, { type: 'START_RETURN' });
     // 返程开始后封死矿区周边以外的所有格子 → 下一步行动触发判负
     s = mutate(s, (m) => {
-      m.tents = [3];
+      m.tents = mkTents([3]);
       for (const id of Object.keys(m.map.tiles)) {
         const t = m.map.tiles[id];
         if (t.terrain !== 'DESERT' && t.terrain !== 'GRASS' && t.terrain !== 'VILLAGE' && t.terrain !== 'OASIS') continue;
@@ -204,7 +204,7 @@ describe('核心引擎：路线中断（无路可回）', () => {
         }
       }
     });
-    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
+    s = performAction(s, { type: 'WAIT', tentId: TENT_A });
     expect(s.status).toBe('DEFEAT');
     expect(['RETURN_ROUTE_SEVERED', 'NO_LEGAL_ROUTE']).toContain(s.defeatReason);
   });
@@ -228,19 +228,21 @@ describe('核心引擎：原地停留', () => {
   });
 
   it('停留日当天天气正常结算：沙漠沙尘暴照常处理', () => {
-    let s = newGame('wait-storm');
+    let s = newGame('wait-storm', calmOverrides(newGame('wait-storm').map));
     s = mutate(s, (m) => {
-      m.tents = [3];
+      m.tents = mkTents([3]);
       m.compasses = 1;
     });
     const target = getLegalMoves(s)[0];
     s = performMove(s, target);
+    expect(s.pendingEvents.length).toBe(0); // calm：移动当天不触发事件
     s = mutate(s, (m) => {
       m.map.tiles[target].terrain = 'DESERT'; // 强制沙漠以匹配沙尘暴
       m.map.weather[target][m.daysUsed] = 'SANDSTORM';
+      m.map.encounters[target] = null;
     });
     // 野外宿营：必须选择帐篷（耐久 -1）
-    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
+    s = performAction(s, { type: 'WAIT', tentId: TENT_A });
     // 停留当天遭遇沙尘暴 → 沙尘暴 Modal 出现
     expect(s.pendingEvents[0]?.kind ?? s.status).toBe('SANDSTORM');
   });
@@ -252,12 +254,12 @@ describe('核心引擎：原地停留', () => {
       const first = getLegalMoves(m)[0];
       m.map.encounters[first] = 'CARAVAN';
       m.triggeredEncounters.push(first);
-      m.tents = [3];
+      m.tents = mkTents([3]);
     });
     const target = getLegalMoves(s)[0];
     s = performMove(s, target); // 已触发过 → 不再触发
     expect(s.pendingEvents.length).toBe(0);
-    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
+    s = performAction(s, { type: 'WAIT', tentId: TENT_A });
     expect(s.pendingEvents.length).toBe(0); // 停留绝不刷新遭遇
   });
 
@@ -315,15 +317,15 @@ describe('核心引擎：绿洲修整', () => {
     const oasis = findTiles(s, 'OASIS')[0];
     s = mutate(s, (m) => {
       m.stamina = 3;
-      m.tents = [3];
+      m.tents = mkTents([3]);
     });
     s = walkTo(s, oasis);
     expect(s.stamina).toBe(3); // 进入不免费恢复
-    s = performAction(s, { type: 'REST', tentIndex: 0 });
+    s = performAction(s, { type: 'REST', tentId: TENT_A });
     expect(s.stamina).toBe(4);
-    expect(s.tents).toEqual([2]); // 修整需要宿营：帐篷耐久 -1
+    expect(charges(s.tents)).toEqual([2]); // 修整需要宿营：帐篷耐久 -1
     expect(s.oasisRestUsed[oasis]).toBe(true);
-    expect(() => performAction(s, { type: 'REST', tentIndex: 0 })).toThrow(GameError);
+    expect(() => performAction(s, { type: 'REST', tentId: TENT_A })).toThrow(GameError);
   });
 
   it('干涸绿洲不可修整', () => {
@@ -331,10 +333,10 @@ describe('核心引擎：绿洲修整', () => {
     const oasis = findTiles(s, 'OASIS')[0];
     s = mutate(s, (m) => {
       m.map.drought[oasis] = true;
-      m.tents = [3];
+      m.tents = mkTents([3]);
     });
     s = walkTo(s, oasis);
-    expect(() => performAction(s, { type: 'REST', tentIndex: 0 })).toThrow(GameError);
+    expect(() => performAction(s, { type: 'REST', tentId: TENT_A })).toThrow(GameError);
   });
 
   it('无帐篷时即使有水绿洲也不能修整', () => {

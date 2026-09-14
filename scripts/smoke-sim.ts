@@ -1,6 +1,7 @@
 import { runBatch } from '../src/simulation/runner';
 import { ALL_BOTS, BOT_BY_NAME } from '../src/simulation/bots';
 import type { RunResult } from '../src/simulation/metrics';
+import { gameConfig } from '../src/game/config/gameConfig';
 
 /**
  * v0.1.2 Smoke Simulation：
@@ -8,7 +9,7 @@ import type { RunResult } from '../src/simulation/metrics';
  * （不是平衡调参——那留给 v0.1.3）
  */
 
-const smokeBots = ['ShortestPathBot', 'SafeBot', 'ForecastBot', 'MineABot', 'MineBBot', 'RandomBot'];
+const smokeBots = ['ShortestPathBot', 'SafeBot', 'ForecastBot', 'ReasonablePlayerBot', 'MineABot', 'MineBBot', 'RandomBot'];
 const RUNS = 200;
 
 function summarize(name: string, results: RunResult[]) {
@@ -27,8 +28,10 @@ function summarize(name: string, results: RunResult[]) {
   console.log(`  胜率: ${(victories.length / results.length * 100).toFixed(1)}%  (胜利 ${victories.length}/${results.length})`);
   console.log(`  失败原因分布: ${JSON.stringify(defeatReasons)}`);
   if (prices.length) {
-    console.log(`  成交矿价: min=${Math.min(...prices)} max=${Math.max(...prices)} avg=${avg(prices)}`);
-    const outOfRange = prices.filter((p) => p < 80 || p > 320);
+    console.log(`  成交矿价: min=${Math.min(...prices)} max=${Math.max(...prices)} avg=${avg(prices)}（区间 ${gameConfig.mineValuation.clampMin}~${gameConfig.mineValuation.clampMax}）`);
+    const outOfRange = prices.filter(
+      (p) => p < gameConfig.mineValuation.clampMin || p > gameConfig.mineValuation.clampMax,
+    );
     if (outOfRange.length) console.log(`  ←←← 矿价越界: ${outOfRange.length} 局`);
   }
   if (profits.length) console.log(`  胜局净收益: min=${Math.min(...profits)} max=${Math.max(...profits)} avg=${avg(profits)}`);

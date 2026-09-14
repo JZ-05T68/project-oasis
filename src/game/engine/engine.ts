@@ -10,6 +10,8 @@ import type {
   GameAction,
   GameState,
   LogEntry,
+  TentId,
+  TentItem,
   TileId,
   WeatherType,
 } from '../types';
@@ -18,7 +20,7 @@ import { generateWorld } from '../map/generate';
 import { parseTileId, tileIdOf } from '../map/grid';
 import { weatherForDay, weatherNames } from '../rules/weather';
 import { pregeneratedEncounter } from '../rules/encounters';
-import { consumeTentCharge, consumeTentForRainstorm } from '../rules/equipment';
+import { consumeTentCharge, consumeTentForRainstorm, tentIdOf, tentName } from '../rules/equipment';
 import { isTerrainKnown, revealIntelAround } from '../rules/reveal';
 import { getLegalMoves, hasLegalReturnPath, isNormalTile } from '../rules/movement';
 import { evaluateViability } from '../rules/viability';
@@ -52,6 +54,14 @@ function makeEventId(state: GameState, kind: string, tileId: TileId | null): str
 
 function enqueue(state: GameState, event: GameState['pendingEvents'][number]): void {
   state.pendingEvents.push(event);
+}
+
+/** 发放一顶全新帐篷（ID 单调递增、绝不复用），返回该帐篷 */
+function mintTent(s: GameState, charges: number = gameConfig.tentDesertCharges): TentItem {
+  const tent: TentItem = { id: tentIdOf(s.nextTentSerial), charges };
+  s.nextTentSerial += 1;
+  s.tents.push(tent);
+  return tent;
 }
 
 /** 天数推进；超过当前上限立即判负。返回 false 表示游戏已结束 */
@@ -123,6 +133,7 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
     stamina: gameConfig.startStamina,
     gemsKg: 0,
     tents: [],
+    nextTentSerial: 1,
     compasses: 0,
     equipmentSpent: 0,
     forecastCharges: 0,
@@ -533,15 +544,18 @@ function waitActionInfo(_state: GameState, needsTent: boolean, hasTent: boolean)
   };
 }
 
-/** 校验宿营帐篷选择，返回合法下标 */
-function assertCampTent(state: GameState, tentIndex: number | undefined, actionName: string): number {
+/** 校验宿营帐篷选择，返回合法的 TentId（不合法直接抛 GameError） */
+function assertCampTent(state: GameState, tentId: TentId | undefined, actionName: string): TentId {
   if (state.tents.length === 0) {
     throw new GameError('NO_TENT_CAMP', `${actionName}需要帐篷，而你没有帐篷`);
   }
-  if (tentIndex === undefined || tentIndex < 0 || tentIndex >= state.tents.length) {
+  if (tentId === undefined || typeof tentId !== 'string' || tentId === '') {
     throw new GameError('TENT_REQUIRED', `${actionName}必须先选择一顶具体帐篷`);
   }
-  return tentIndex;
+  if (!state.tents.some((t) => t.id === tentId)) {
+    throw new GameError('TENT_NOT_FOUND', `${actionName}指定的帐篷 ${tentId} 不存在（可能已被消耗或报废）`);
+  }
+  return tentId;
 }
 
 export function performAction(state: GameState, action: GameAction): GameState {
@@ -576,12 +590,12 @@ export function performAction(state: GameState, action: GameAction): GameState {
       if (s.oasisRestUsed[s.position]) throw new GameError('OASIS_USED', '每个绿洲每局只能有效修整一次');
       if (s.stamina >= gameConfig.maxStamina) throw new GameError('STAMINA_FULL', '耐力已满');
       // v0.1.2a：修整需要正常宿营——必须消耗一顶指定帐篷的 1 点耐久
-      const tentIdx = assertCampTent(s, action.tentIndex, '绿洲修整');
+      const tentId = assertCampTent(s, action.tentId, '绿洲修整');
       if (!addDays(s, 1)) return s;
-      s.tents = consumeTentCharge(s.tents, tentIdx);
+      s.tents = consumeTentCharge(s.tents, tentId);
       s.oasisRestUsed[s.position] = true;
       s.stamina = Math.min(gameConfig.maxStamina, s.stamina + 1);
-      pushLog(s, 'good', `在绿洲修整一天（宿营消耗 1 点帐篷耐久），耐力恢复至 ${s.stamina}/${gameConfig.maxStamina}。`);
+      pushLog(s, 'good', `在绿洲修整一天（宿营消耗 ${tentName(tentId)} 1 点耐久），耐力恢复至 ${s.stamina}/${gameConfig.maxStamina}。`);
       finalizeTurn(s);
       return s;
     }
@@ -603,8 +617,8 @@ export function performAction(state: GameState, action: GameAction): GameState {
       s.cash -= price;
       s.equipmentSpent += price;
       if (action.item === 'tent') {
-        s.tents.push(gameConfig.tentDesertCharges);
-        pushLog(s, 'info', `购买了一顶帐篷（-${price} 元，${discount ? '市集八折' : '原价'}）。现有 ${s.tents.length} 顶。`);
+        const tent = mintTent(s);
+        pushLog(s, 'info', `购买了一顶帐篷（-${price} 元，${discount ? '市集八折' : '原价'}）。${tentName(tent.id)} 入列，现有 ${s.tents.length} 顶。`);
       } else {
         s.compasses += 1;
         pushLog(s, 'info', `购买了一只指南针（-${price} 元，${discount ? '市集八折' : '原价'}）。现有 ${s.compasses} 只。`);
@@ -648,10 +662,10 @@ export function performAction(state: GameState, action: GameAction): GameState {
       const terrain = s.map.tiles[s.position].terrain;
       // v0.1.2a：城市/村庄为安全住宿点（免费）；野外/矿区/绿洲宿营必须消耗帐篷
       if (terrain !== 'CITY' && terrain !== 'VILLAGE') {
-        const tentIdx = assertCampTent(s, action.tentIndex, '野外宿营');
-        s.tents = consumeTentCharge(s.tents, tentIdx);
+        const tentId = assertCampTent(s, action.tentId, '野外宿营');
+        s.tents = consumeTentCharge(s.tents, tentId);
         if (!addDays(s, 1)) return s;
-        pushLog(s, 'info', `第 ${s.daysUsed} 天：原地宿营一天（帐篷耐久 -1，剩 ${s.tents.length} 顶）。天气：${weatherNames[getWeatherForDay(s, s.position, s.daysUsed)]}。`);
+        pushLog(s, 'info', `第 ${s.daysUsed} 天：原地宿营一天（${tentName(tentId)} 耐久 -1，剩 ${s.tents.length} 顶）。天气：${weatherNames[getWeatherForDay(s, s.position, s.daysUsed)]}。`);
       } else {
         if (!addDays(s, 1)) return s;
         pushLog(s, 'info', `第 ${s.daysUsed} 天：在${terrain === 'CITY' ? '城市' : '村庄'}安心停留一天（无需帐篷）。`);
@@ -684,24 +698,20 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
   switch (current.kind) {
     case 'SANDSTORM': {
       if (choice.kind !== 'SANDSTORM') throw new GameError('BAD_CHOICE', '选择类型不匹配');
-      const { useTent, useCompass, tentIndex } = choice;
+      const { useTent, useCompass, tentId } = choice;
       if (useTent && s.tents.length === 0) throw new GameError('NO_TENT', '没有帐篷');
       if (useCompass && s.compasses === 0) throw new GameError('NO_COMPASS', '没有指南针');
-      if (useTent && (tentIndex === undefined || tentIndex < 0 || tentIndex >= s.tents.length)) {
-        throw new GameError('TENT_REQUIRED', '沙尘暴中使用帐篷必须指明具体哪一顶');
-      }
-      applySandstorm(s, useTent, useCompass, tentIndex);
+      if (useTent) assertCampTent(s, tentId, '沙尘暴');
+      applySandstorm(s, useTent, useCompass, tentId);
       break;
     }
     case 'RAINSTORM': {
       if (choice.kind !== 'RAINSTORM') throw new GameError('BAD_CHOICE', '选择类型不匹配');
       if (choice.useTent) {
         if (s.tents.length === 0) throw new GameError('NO_TENT', '没有帐篷');
-        if (choice.tentIndex === undefined || choice.tentIndex < 0 || choice.tentIndex >= s.tents.length) {
-          throw new GameError('TENT_REQUIRED', '暴雨中使用帐篷必须指明具体哪一顶');
-        }
-        s.tents = consumeTentForRainstorm(s.tents, choice.tentIndex);
-        pushLog(s, 'bad', `你撑起帐篷硬扛暴雨。虽然保住了体力，但帐篷已被整体淋湿报废（剩 ${s.tents.length} 顶）。`);
+        const tentId = assertCampTent(s, choice.tentId, '暴雨');
+        s.tents = consumeTentForRainstorm(s.tents, tentId);
+        pushLog(s, 'bad', `${tentName(tentId)} 替你硬扛暴雨。虽然保住了体力，但帐篷已被整体淋湿报废（剩 ${s.tents.length} 顶）。`);
       } else {
         pushLog(s, 'bad', `你冒雨赶路：耐力 -${gameConfig.rainstormStaminaCost}。`);
         if (!applyStaminaLoss(s, gameConfig.rainstormStaminaCost)) return s;
@@ -714,8 +724,8 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
         if (s.cash < gameConfig.caravanTentPrice) throw new GameError('NO_CASH', '现金不足，无法购买二手帐篷');
         s.cash -= gameConfig.caravanTentPrice;
         s.equipmentSpent += gameConfig.caravanTentPrice;
-        s.tents.push(gameConfig.caravanTentCharges);
-        pushLog(s, 'info', `从商队购入一顶二手帐篷（-${gameConfig.caravanTentPrice} 元）。现有 ${s.tents.length} 顶。`);
+        const tent = mintTent(s, gameConfig.caravanTentCharges);
+        pushLog(s, 'info', `从商队购入一顶二手帐篷（-${gameConfig.caravanTentPrice} 元）。${tentName(tent.id)} 入列，现有 ${s.tents.length} 顶。`);
       } else {
         const revealed = revealIntelAround(s, current.tileId);
         if (revealed.length > 0) {
@@ -764,14 +774,14 @@ export function resolvePendingEvent(state: GameState, eventId: string, choice: E
   return s;
 }
 
-function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean, tentIndex?: number): void {
+function applySandstorm(s: GameState, useTent: boolean, useCompass: boolean, tentId?: TentId): void {
   if (useTent) {
-    s.tents = consumeTentCharge(s.tents, tentIndex);
+    s.tents = consumeTentCharge(s.tents, tentId);
     if (useCompass) {
       s.compasses -= 1;
-      pushLog(s, 'info', `你扎起帐篷躲过沙暴，指南针指明方向。帐篷耐久 -1（剩 ${s.tents.length} 顶），指南针 -1（剩 ${s.compasses} 只）。体力无损，继续前行。`);
+      pushLog(s, 'info', `${tentName(tentId!)} 挡住沙暴（耐久 -1，剩 ${s.tents.length} 顶），指南针指明方向（剩 ${s.compasses} 只）。体力无损，继续前行。`);
     } else {
-      pushLog(s, 'bad', `帐篷挡住了风沙（耐久 -1，剩 ${s.tents.length} 顶），但在昏黄的风中迷失了方向：额外损失 1 天。`);
+      pushLog(s, 'bad', `${tentName(tentId!)} 挡住了风沙（耐久 -1，剩 ${s.tents.length} 顶），但在昏黄的风中迷失了方向：额外损失 1 天。`);
       addDays(s, 1);
     }
   } else {

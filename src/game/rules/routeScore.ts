@@ -1,6 +1,6 @@
 import type { GameState, TileId } from '../types';
 import { gameConfig } from '../config/gameConfig';
-import { isNormalTile } from './movement';
+import { isNormalTile, returnViaFilterExcept } from './movement';
 import { countNodeDisjointPaths, dijkstraPath } from '../map/grid';
 
 /**
@@ -24,9 +24,10 @@ function tileRiskOf(state: GameState, id: TileId): number {
   return gameConfig.tileRisk[state.map.tiles[id].terrain] ?? 0;
 }
 
-/** 节点不重叠返程路径计数（Menger 风格，上限 4） */
+/** 节点不重叠返程路径计数（Menger 风格，上限 4；当前矿区可穿透，其它矿区禁行） */
 function countNodeDisjointReturnPaths(state: GameState, forbidden: TileId[]): { count: number; truncated: boolean } {
-  const count = countNodeDisjointPaths(state.map, state.position, state.map.cityId, forbidden, 4);
+  const filter = returnViaFilterExcept(state.map, state.mineEntranceId);
+  const count = countNodeDisjointPaths(state.map, state.position, state.map.cityId, forbidden, 4, filter);
   return { count, truncated: count >= 4 };
 }
 
@@ -56,8 +57,14 @@ export function computeRouteScore(state: GameState): RouteScoreResult {
 
   // 最优返程：风险加权 Dijkstra（避开去程已烧格）
   const forbidden = state.visitedOutbound.filter((id) => isNormalTile(state.map, id));
-  const bestReturn = dijkstraPath(state.map, mineId, cityId, (id) =>
-    Math.min(10, Math.max(0.5, tileRiskOf(state, id))), forbidden);
+  const bestReturn = dijkstraPath(
+    state.map,
+    mineId,
+    cityId,
+    (id) => Math.min(10, Math.max(0.5, tileRiskOf(state, id))),
+    forbidden,
+    returnViaFilterExcept(state.map, mineId),
+  );
   if (!bestReturn) {
     throw new Error('computeRouteScore 前置条件不满足：不存在合法返程路径');
   }

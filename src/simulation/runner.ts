@@ -55,6 +55,9 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
   countEdges(state.visitedOutbound);
   countEdges(state.visitedReturn);
 
+  const mineInfo = state.mineEntranceId
+    ? state.map.mines.find((m) => m.tileId === state.mineEntranceId)
+    : undefined;
   const settlementDays = state.stats;
   const status: RunResult['status'] = state.status === 'VICTORY' ? 'VICTORY' : 'DEFEAT';
   return {
@@ -64,6 +67,8 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     defeatReason: state.defeatReason,
     error,
     mineId: state.mineEntranceId,
+    mineDifficulty: mineInfo?.difficultyScore ?? null,
+    mineJitter: mineInfo?.detail.jitter ?? null,
     routeScore: state.routeScore,
     daysUsed: state.daysUsed,
     outboundDays: settlementDays.outboundDays,
@@ -84,7 +89,7 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     compassesBought: 0,
     tentUses: 0,
     compassUses: 0,
-    tentsChargesLeft: state.tents.reduce((a, b) => a + b, 0),
+    tentsChargesLeft: state.tents.reduce((a, b) => a + b.charges, 0),
     compassesLeft: state.compasses,
     events: [],
     nodeVisits,
@@ -215,6 +220,8 @@ function emptyResult(): RunResult {
     defeatReason: null,
     error: 'no-result',
     mineId: null,
+    mineDifficulty: null,
+    mineJitter: null,
     routeScore: null,
     daysUsed: 0,
     outboundDays: null,

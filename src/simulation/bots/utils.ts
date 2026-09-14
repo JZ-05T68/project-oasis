@@ -1,8 +1,8 @@
-import type { EventChoice } from '../../game/types';
+import type { EventChoice, TentId } from '../../game/types';
 import type { BotDecision, BotRng } from './types';
 import type { FairView } from '../fairView';
-import { bfsPath, dijkstraPath, minReturnDays, returnForbidden, SAFE_WEIGHTS } from '../simGraph';
-import { lowestDurabilityIndex } from '../../game/rules/equipment';
+import { bfsPath, dijkstraPath, minReturnDays, returnForbidden, returnViaFilter, SAFE_WEIGHTS } from '../simGraph';
+import { lowestDurabilityTentId } from '../../game/rules/equipment';
 
 /**
  * 公共策略件：移动规划、采矿决策、购买策略、事件应对（v0.1.2 格子地图版）。
@@ -97,9 +97,9 @@ export function planOutboundStep(view: FairView, target: MineTarget, style: Move
   return view.legalMoves.includes(next) ? next : fallbackMove(view, rng);
 }
 
-/** 返程：最短合法路线的下一步 */
+/** 返程：最短合法路线的下一步（当前矿区可穿透，其它矿区禁行） */
 export function planReturnStep(view: FairView): string {
-  const path = bfsPath(view.map, view.position, view.map.cityId, returnForbidden(view));
+  const path = bfsPath(view.map, view.position, view.map.cityId, returnForbidden(view), returnViaFilter(view));
   if (!path) return fallbackMove(view, rngUnused);
   const next = path[1];
   return view.legalMoves.includes(next) ? next : fallbackMove(view, rngUnused);
@@ -165,16 +165,16 @@ export type EventPolicyKind = 'default' | 'cheap';
 export function eventChoice(view: FairView, policy: EventPolicyKind): EventChoice | null {
   const ev = view.pendingEvent;
   if (!ev) return null;
-  const tentIdx = view.tents.length > 0 ? lowestDurabilityIndex(view.tents) : undefined;
+  const tentId = botTentId(view);
   switch (ev.kind) {
     case 'SANDSTORM':
       return policy === 'cheap'
         ? { kind: 'SANDSTORM', useTent: false, useCompass: false }
-        : { kind: 'SANDSTORM', useTent: view.tents.length > 0, useCompass: view.compasses > 0, tentIndex: tentIdx };
+        : { kind: 'SANDSTORM', useTent: view.tents.length > 0, useCompass: view.compasses > 0, tentId };
     case 'RAINSTORM':
       return policy === 'cheap'
         ? { kind: 'RAINSTORM', useTent: false }
-        : { kind: 'RAINSTORM', useTent: view.tents.length > 0, tentIndex: tentIdx };
+        : { kind: 'RAINSTORM', useTent: view.tents.length > 0, tentId };
     case 'CARAVAN':
       if (policy !== 'cheap' && view.cash >= 300 && view.tents.length === 0) {
         return { kind: 'CARAVAN', action: 'BUY_TENT' };
@@ -236,9 +236,9 @@ export function wantsRest(view: FairView): boolean {
   return !!rest && !rest.disabled && view.stamina < view.maxStamina;
 }
 
-/** 宿营/修整用帐篷下标（无帐篷返回 undefined） */
-export function botTentIndex(view: FairView): number | undefined {
-  return view.tents.length > 0 ? lowestDurabilityIndex(view.tents) : undefined;
+/** 宿营/修整用帐篷稳定 ID（无帐篷返回 undefined） */
+export function botTentId(view: FairView): TentId | undefined {
+  return lowestDurabilityTentId(view.tents);
 }
 
 /* ------------------------------------------------------------------ */
@@ -275,7 +275,7 @@ export function baseBotDecide(view: FairView, cfg: BaseBotConfig, rng: BotRng): 
   if (purchase) return { type: 'ACTION', action: purchase.action };
   // 4. 绿洲修整（需帐篷时自动带上选择）
   if (cfg.rest && wantsRest(view)) {
-    return { type: 'ACTION', action: { type: 'REST', tentIndex: botTentIndex(view) } };
+    return { type: 'ACTION', action: { type: 'REST', tentId: botTentId(view) } };
   }
   // 5. 天气预报（购买/使用）与停留避灾
   if (cfg.forecast === 'heuristic') {
@@ -288,7 +288,7 @@ export function baseBotDecide(view: FairView, cfg: BaseBotConfig, rng: BotRng): 
     if (cfg.wait && view.stamina <= 2 && currentTileTomorrowSevere(view)) {
       const waitInfo = view.availableActions.find((a) => a.action.type === 'WAIT');
       if (waitInfo && !waitInfo.disabled) {
-        return { type: 'ACTION', action: { type: 'WAIT', tentIndex: botTentIndex(view) } };
+        return { type: 'ACTION', action: { type: 'WAIT', tentId: botTentId(view) } };
       }
     }
   }

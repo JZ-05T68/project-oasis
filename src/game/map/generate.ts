@@ -16,10 +16,13 @@ import {
 } from './grid';
 
 /**
- * v0.1.2 随机地图生成（v0.1.2a 规则修订）。
+ * v0.1.2 随机地图生成（v0.1.2b 真人试玩修正）。
  *
- * - 10×12 格子；城市固定左下角 (rows-1, 0)；两个矿区固定在最右列 (col=cols-1)，
- *   行由 Seed 随机并满足最小行距。
+ * - 8×9 格子（72 格）；城市固定左下角 (rows-1, 0) = (7,0)；两个矿区固定在最右列
+ *   (col=cols-1 = 8)，行由 Seed 在「合法行区间」内随机并满足最小行距。
+ * - 矿区禁止出现在最下方 `mineBottomForbiddenRows` 行（row 6 / 7），
+ *   否则城市固定左下时矿区刷到右下会让远征距离过短。
+ * - 尺寸相关的全部数值都从 gameConfig.map 派生，代码中不出现旧尺寸硬编码。
  * - 普通格地形完全独立随机（与位置/路线无关）。
  * - 天气、遭遇、绿洲干涸、矿区价值全部在生成阶段按 Seed 确定。
  * - 合法性：城市与每个矿区之间存在两条内部格子完全不重合的路径
@@ -30,6 +33,31 @@ import {
 export const WEATHER_TABLE_DAYS = gameConfig.maxDays + 4;
 
 type NormalTerrain = 'GRASS' | 'DESERT' | 'VILLAGE' | 'OASIS';
+
+/** 矿区合法行区间（含端点）：0 ~ rows-1-mineBottomForbiddenRows */
+export function mineLegalRowRange(): { min: number; max: number } {
+  const { rows, mineBottomForbiddenRows } = gameConfig.map;
+  return { min: 0, max: rows - 1 - mineBottomForbiddenRows };
+}
+
+/** 矿区合法行列表（升序） */
+export function mineLegalRows(): number[] {
+  const { min, max } = mineLegalRowRange();
+  const out: number[] = [];
+  for (let r = min; r <= max; r++) out.push(r);
+  return out;
+}
+
+/** 城市坐标（固定左下角，由地图尺寸派生） */
+export function cityCoords(): { row: number; col: number } {
+  return { row: gameConfig.map.rows - 1, col: 0 };
+}
+
+/** 矿区列（固定最右列，由地图尺寸派生） */
+export function mineCol(): number {
+  return gameConfig.map.cols - 1;
+}
+
 
 function rollTerrain(rng: () => number): NormalTerrain {
   const roll = rng();
@@ -81,25 +109,25 @@ function tryGenerate(mapSeed: string): GenerateResult | null {
   const cityId = tileIdOf(rows - 1, 0);
   tiles[cityId] = { id: cityId, row: rows - 1, col: 0, terrain: 'CITY' };
 
-  // 3. 两个矿区：最右列，行随机，最小行距
-  const rowA = Math.floor(rng() * rows);
-  const candidates: number[] = [];
-  for (let r = 0; r < rows; r++) {
-    if (Math.abs(r - rowA) >= mineMinRowGap) candidates.push(r);
-  }
-  if (candidates.length === 0) return null; // 理论不可达（rows 过小），重试无意义但保持确定性
+  // 3. 两个矿区：最右列，行在合法区间内随机，最小行距
+  //    合法行 = [0, rows-1-mineBottomForbiddenRows]（8 行为 0~5；row 6/7 禁止）
+  const legalRows = mineLegalRows();
+  const rowA = legalRows[Math.floor(rng() * legalRows.length)];
+  const candidates: number[] = legalRows.filter((r) => Math.abs(r - rowA) >= mineMinRowGap);
+  if (candidates.length === 0) return null; // 行区间过小（配置错误），保持确定性重试
   const rowB = candidates[Math.floor(rng() * candidates.length)];
+  const mineColIdx = cols - 1;
   const mineTiles: Array<{ slot: MineSlot; row: number }> = [
     { slot: 'A', row: rowA },
     { slot: 'B', row: rowB },
   ];
   for (const m of mineTiles) {
-    const id = tileIdOf(m.row, cols - 1);
-    tiles[id] = { id, row: m.row, col: cols - 1, terrain: 'MINE', mineSlot: m.slot };
+    const id = tileIdOf(m.row, mineColIdx);
+    tiles[id] = { id, row: m.row, col: mineColIdx, terrain: 'MINE', mineSlot: m.slot };
   }
   const mineIds: Record<MineSlot, TileId> = {
-    A: tileIdOf(rowA, cols - 1),
-    B: tileIdOf(rowB, cols - 1),
+    A: tileIdOf(rowA, mineColIdx),
+    B: tileIdOf(rowB, mineColIdx),
   };
 
   const map: GameMap = {
@@ -200,8 +228,29 @@ function cfgJitter(): { min: number; max: number } {
   return { min: gameConfig.mineValuation.jitterMin, max: gameConfig.mineValuation.jitterMax };
 }
 
+/**
+ * 宝石单价公式（v0.1.2b 单一来源）。
+ *
+ * 价格基数 **只** 由该矿区「最短合法往返方案」的客观危险程度（difficultyScore）
+ * 决定，再乘上小幅品质/行情 jitter，最后夹在本局配置区间内。
+ *
+ * 玩家的实际行为（绕路、多踩沙漠/草地、受伤、烧帐篷、用指南针、原地等待）
+ * 完全不出现在这个公式里——因此不存在「走得越危险卖得越贵」的刷价漏洞。
+ */
+export function computeGemPrice(
+  difficultyScore: number,
+  jitter: number,
+  cfg: { base: number; scale: number; clampMin: number; clampMax: number } = gameConfig.mineValuation,
+): number {
+  return Math.max(
+    cfg.clampMin,
+    Math.min(cfg.clampMax, Math.round((cfg.base + difficultyScore * cfg.scale) * jitter)),
+  );
+}
+
 export function evaluateMine(map: GameMap, slot: MineSlot, mineId: TileId, jitter: number): MineInfo {
-  const cfg = gameConfig.mineValuation;
+  const cfg: { base: number; scale: number; clampMin: number; clampMax: number } =
+    gameConfig.mineValuation;
   const cityId = map.cityId;
 
   /**
@@ -235,10 +284,8 @@ export function evaluateMine(map: GameMap, slot: MineSlot, mineId: TileId, jitte
 
   const difficultyScore = roundTripRisk;
   const stars = computeStarRating(difficultyScore);
-  const gemPrice = Math.max(
-    cfg.clampMin,
-    Math.min(cfg.clampMax, Math.round((cfg.base + difficultyScore * cfg.scale) * jitter)),
-  );
+  const gemPrice = computeGemPrice(difficultyScore, jitter, cfg);
+
 
   return {
     slot,

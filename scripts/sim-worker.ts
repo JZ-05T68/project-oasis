@@ -5,11 +5,9 @@
 import { writeFileSync } from 'node:fs';
 import { BOT_BY_NAME } from '../src/simulation/bots';
 import { runBatchSeeds } from '../src/simulation/runner';
-import { gameConfig } from '../src/game/config/gameConfig';
-
-// 价格扫描支持：通过环境变量覆盖矿区固定价（仅 Balance 分析用）
-if (process.env.SWEEP_NORTH) gameConfig.mineBasePrice.NORTH = Number(process.env.SWEEP_NORTH);
-if (process.env.SWEEP_MIDDLE) gameConfig.mineBasePrice.CENTRAL = Number(process.env.SWEEP_MIDDLE);
+// 说明：v0.1.2b 起宝石单价由「矿区客观往返难度」在地图生成阶段算出，
+// 不再有固定价可覆盖。经济标定请用 `scripts/economy-calibrate.ts`
+// （对局只跑一次，离线套用任意定价参数），本 worker 只负责跑对局。
 
 interface Args {
   bot: string;

@@ -1,4 +1,4 @@
-import { generateWorld } from './src/game/map/generate';
+import { generateWorld } from '../src/game/map/generate';
 const glyph: Record<string, string> = { CITY: '城', DESERT: '沙', GRASS: '草', VILLAGE: '村', OASIS: '泉', MINE: '矿' };
 for (const seed of ['alpha', 'beta', 'gamma', 'delta']) {
   const m = generateWorld(seed);

@@ -1,9 +1,12 @@
 /**
- * Project Oasis 核心类型定义（v0.1.2 Random Expedition）。
- * 地图为 m×n 二维格子；城市固定左下角；两个矿区固定在最右列。
+ * Project Oasis 核心类型定义（v0.1.2 Random Expedition / v0.1.2b 真人试玩修正）。
+ * 地图为 m×n 二维格子；城市固定左下角；两个矿区固定在最右列（合法行区间见 gameConfig.map）。
  */
 
 export type TileId = string; // 格式 `${row}:${col}`
+
+/** 帐篷稳定唯一标识（形如 tent-001） */
+export type TentId = string;
 
 export type MineSlot = 'A' | 'B';
 
@@ -87,6 +90,19 @@ export interface GameMap {
   drought: Record<TileId, boolean>;
 }
 
+/**
+ * 帐篷（v0.1.2b）：每顶帐篷拥有稳定唯一 ID。
+ *
+ * UI 与引擎之间的每一次帐篷选择都必须传 `TentId`，绝不允许用 array index 绑定：
+ * 帐篷会被消耗 / 报废 / 从列表移除，列表位置会变化，只有 ID 是稳定的。
+ */
+export interface TentItem {
+  /** 稳定唯一标识（tent-001 / tent-002 …），一经发放永不改变 */
+  id: TentId;
+  /** 剩余沙漠耐久（新帐篷 = tentDesertCharges；归零整顶移除，不会出现 0） */
+  charges: number;
+}
+
 /** 日志条目 */
 export interface LogEntry {
   day: number;
@@ -106,19 +122,19 @@ export type PendingEvent =
   | { id: string; kind: 'THIEF'; tileId: TileId; stolen: number }
   | { id: string; kind: 'MARKET'; tileId: TileId };
 
-/** 沙尘暴选择（使用帐篷时必须指明具体哪一顶） */
+/** 沙尘暴选择（使用帐篷时必须指明具体哪一顶——传稳定 ID，不传下标） */
 export interface SandstormChoice {
   useTent: boolean;
   useCompass: boolean;
-  /** useTent 时必填：帐篷下标 */
-  tentIndex?: number;
+  /** useTent 时必填：帐篷稳定 ID（TentId） */
+  tentId?: TentId;
 }
 
 /** 暴雨选择（使用帐篷时必须指明具体哪一顶；该帐篷整顶报废） */
 export interface RainstormChoice {
   useTent: boolean;
-  /** useTent 时必填：帐篷下标 */
-  tentIndex?: number;
+  /** useTent 时必填：帐篷稳定 ID（TentId） */
+  tentId?: TentId;
 }
 
 /** 商队选择 */
@@ -178,10 +194,10 @@ export interface GameAction {
   /** BUY 时指定物品 */
   item?: 'tent' | 'compass';
   /**
-   * WAIT / REST 在需要帐篷的地点（野外/矿区/绿洲）必须指明使用哪一顶
-   * （城市/村庄等待无需帐篷，可省略）
+   * WAIT / REST 在需要帐篷的地点（野外/矿区/绿洲）必须指明使用哪一顶。
+   * v0.1.2b：传帐篷稳定 ID（TentId），不再使用 array index。
    */
-  tentIndex?: number;
+  tentId?: TentId;
 }
 
 /** 提供给 UI 的行动描述 */
@@ -255,8 +271,13 @@ export interface GameState {
   stamina: number;
   gemsKg: number;
 
-  /** 帐篷列表：每项为该帐篷剩余沙漠耐久（新帐篷为 3） */
-  tents: number[];
+  /**
+   * 帐篷列表：每项含稳定唯一 ID 与剩余沙漠耐久（新帐篷 charges = 3）。
+   * 任何消耗都必须由调用方传 TentId 指定，引擎绝不按位置自动选择。
+   */
+  tents: TentItem[];
+  /** 帐篷 ID 序号分配器（递增、不复用，保证 tent-001/tent-002… 唯一） */
+  nextTentSerial: number;
   compasses: number;
   equipmentSpent: number;
 

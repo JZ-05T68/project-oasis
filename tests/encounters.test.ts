@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { performMove, performAction, resolvePendingEvent, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
-import { newGame, calmOverrides, mutate } from './helpers';
+import { newGame, calmOverrides, mutate, charges } from './helpers';
 import { gameConfig } from '../src/game/config/gameConfig';
 
 /** 遭遇系统（v0.1.2）：按格预生成、首次进入触发、每格每局一次 */
@@ -38,7 +38,7 @@ describe('沙漠商队', () => {
     expect(ev.kind).toBe('CARAVAN');
     s = resolvePendingEvent(s, ev.id, { kind: 'CARAVAN', action: 'BUY_TENT' });
     expect(s.cash).toBe(2000 - gameConfig.caravanTentPrice);
-    expect(s.tents).toEqual([gameConfig.caravanTentCharges]);
+    expect(charges(s.tents)).toEqual([gameConfig.caravanTentCharges]);
     expect(s.equipmentSpent).toBe(gameConfig.caravanTentPrice);
     expect(s.daysUsed).toBe(1);
   });

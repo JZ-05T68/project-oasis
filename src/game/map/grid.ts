@@ -141,6 +141,7 @@ export function enumeratePaths(
   to: TileId,
   forbidden: Iterable<TileId>,
   limit: number,
+  nodeFilter?: (id: TileId) => boolean,
 ): { paths: TileId[][]; truncated: boolean } {
   const banned = new Set(forbidden);
   const paths: TileId[][] = [];
@@ -158,6 +159,7 @@ export function enumeratePaths(
       for (const t of gridNeighbors(map, cur)) {
         if (t === to) return true;
         if (seen.has(t) || onPath.has(t) || banned.has(t)) continue;
+        if (nodeFilter && !nodeFilter(t)) continue;
         seen.add(t);
         queue.push(t);
       }
@@ -178,6 +180,7 @@ export function enumeratePaths(
         continue;
       }
       if (banned.has(nb)) continue;
+      if (nodeFilter && !nodeFilter(nb)) continue;
       if (!canStillReach(nb)) continue;
       onPath.add(nb);
       stack.push(nb);
@@ -201,11 +204,12 @@ export function countNodeDisjointPaths(
   to: TileId,
   forbidden: Iterable<TileId>,
   countCap: number,
+  nodeFilter?: (id: TileId) => boolean,
 ): number {
   const burned = new Set(forbidden);
   let count = 0;
   while (count < countCap) {
-    const path = bfsPath(map, from, to, burned);
+    const path = bfsPath(map, from, to, burned, nodeFilter);
     if (!path) break;
     count += 1;
     // 烧掉内部节点（不含 from/to）

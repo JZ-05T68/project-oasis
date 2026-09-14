@@ -4,6 +4,7 @@ import { buildFairView } from '../src/simulation/fairView';
 import { runOne, runBatchSeeds, makeBotRng, type BotStrategy } from '../src/simulation/runner';
 import { aggregateBot, aggregateEvents, aggregateNodeHeat, type RunResult } from '../src/simulation/metrics';
 import { ALL_BOTS, randomBot, mineABot, mineBBot } from '../src/simulation/bots';
+import { mkTents, TENT_A } from './helpers';
 
 describe('v0.1.2 FairView 防作弊', () => {
   it('FairView 不暴露天气表 / 遭遇预生成表 / RNG / 未抵达绿洲的干涸状态', () => {
@@ -94,18 +95,24 @@ describe('Bot 合法性与可复现性', () => {
       [mineABot, 'A'],
       [mineBBot, 'B'],
     ];
+    let checked = 0;
     for (const [bot, slot] of cases) {
-      for (const seed of ['controlled:v012', 'controlled:v012b']) {
+      for (const seed of ['controlled:v012', 'controlled:v012b', 'controlled:v012c', 'controlled:v012d']) {
         const r = runOne(bot, seed);
         expect(r.error, `${bot.name} seed=${seed} 出错: ${r.error}`).toBeNull();
         if (r.mineId === null) continue; // 途中失败（天气/事件）属正常对局
-        // 价格 = 地图上该矿区的公开评估价（通过重建同 Seed 地图核对）
+        // 只要真的进了矿，就必然是 Bot 指定的那个矿区
         const map = createNewGame(r.seed).map;
         const mine = map.mines.find((m) => m.tileId === r.mineId)!;
         expect(mine.slot).toBe(slot);
+        if (r.gemPrice === null) continue; // 没回城 → 单价不公布（v0.1.2a 最终鉴定）
+        // 价格 = 地图上该矿区的公开评估价（通过重建同 Seed 地图核对）
         expect(r.gemPrice).toBe(mine.gemPrice);
+        checked += 1;
       }
     }
+    // 至少有一次成功返城鉴定，避免测试空转
+    expect(checked).toBeGreaterThan(0);
   }, 120_000);
 
   it('玩家行为不能刷矿价：绕路/受伤不会改变地图评估价', () => {
@@ -129,7 +136,9 @@ describe('仿真统计正确性（合成数据）', () => {
       status: 'VICTORY',
       defeatReason: null,
       error: null,
-      mineId: '0:11',
+      mineId: '0:8',
+      mineDifficulty: 40,
+      mineJitter: 1,
       routeScore: 10,
       daysUsed: 13,
       outboundDays: 5,
@@ -194,10 +203,10 @@ describe('仿真统计正确性（合成数据）', () => {
 
   it('节点热度聚合正确', () => {
     const results = fixture();
-    results[0].nodeVisits = { '9:0': { out: 1, ret: 0 }, '0:11': { out: 1, ret: 0 } };
-    results[1].nodeVisits = { '9:0': { out: 1, ret: 0 }, '5:6': { out: 0, ret: 1 } };
+    results[0].nodeVisits = { '7:0': { out: 1, ret: 0 }, '0:8': { out: 1, ret: 0 } };
+    results[1].nodeVisits = { '7:0': { out: 1, ret: 0 }, '5:6': { out: 0, ret: 1 } };
     const heat = aggregateNodeHeat(results);
-    const city = heat.find((h) => h.nodeId === '9:0')!;
+    const city = heat.find((h) => h.nodeId === '7:0')!;
     expect(city.outVisits).toBe(2);
     expect(city.runFraction).toBe(40);
   });
@@ -212,11 +221,11 @@ describe('引擎直接行为抽查（仿真等价路径）', () => {
     s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.forecastCharges).toBe(1);
     s = mutate(s, (m) => {
-      m.tents = [3]; // 野外宿营需要帐篷
+      m.tents = mkTents([3]); // 野外宿营需要帐篷
     });
     const legal = buildFairView(s).legalMoves;
     s = performMove(s, legal[0]);
-    s = performAction(s, { type: 'WAIT', tentIndex: 0 });
+    s = performAction(s, { type: 'WAIT', tentId: TENT_A });
     expect(s.daysUsed).toBe(2);
   });
 

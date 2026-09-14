@@ -5,6 +5,7 @@ import type {
   MineInfo,
   MineSlot,
   Phase,
+  TentItem,
   TerrainType,
   TileId,
   WeatherType,
@@ -56,7 +57,8 @@ export interface FairView {
   cash: number;
   stamina: number;
   maxStamina: number;
-  tents: number[];
+  /** 帐篷列表（稳定 ID + 剩余耐久） */
+  tents: TentItem[];
   compasses: number;
   gemsKg: number;
   forecastCharges: number;

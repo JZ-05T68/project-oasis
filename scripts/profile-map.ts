@@ -1,7 +1,6 @@
-import { generateWorld } from './src/game/map/generate';
-import { bfsPath, dijkstraPath, enumeratePaths, existsPathExcluding } from './src/game/map/grid';
-import { hashSeed, nextRandom } from './src/game/random/rng';
-import { gameConfig } from './src/game/config/gameConfig';
+import { generateWorld } from '../src/game/map/generate';
+import { bfsPath, dijkstraPath, enumeratePaths, existsPathExcluding } from '../src/game/map/grid';
+import { gameConfig } from '../src/game/config/gameConfig';
 
 function timeIt(label: string, fn: () => void) {
   const t0 = performance.now();

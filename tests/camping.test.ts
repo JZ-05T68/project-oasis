@@ -1,20 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { performAction, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
-import { newGame, calmOverrides, mutate, nearestMineTile } from './helpers';
+import { newGame, calmOverrides, mutate, nearestMineTile, mkTents, charges, TENT_A, TENT_B, TENT_C } from './helpers';
 import { walkTo } from './helpers';
 
 /**
- * v0.1.2a 宿营与帐篷逐顶管理规则。
+ * v0.1.2a 宿营与帐篷逐顶管理规则（v0.1.2b：帐篷改用稳定唯一 ID）。
  * 城市/村庄 = 免费等待；野外（沙漠/草地/绿洲）与矿区空等 = 宿营（必须帐篷、逐顶选择）。
  */
 
 /** 把玩家安全地放到某个指定地形上（calm 全晴，途中不掉耐力） */
 function gotoTerrain(seed: string, terrain: 'DESERT' | 'GRASS' | 'OASIS', tents: number[]) {
   let s = newGame(seed, calmOverrides(newGame(seed).map));
-  const target = Object.values(s.map.tiles).find((t) => t.terrain === terrain && !(t.row === 9 && t.col === 0))!;
+  const target = Object.values(s.map.tiles).find((t) => t.terrain === terrain && !(t.row === s.map.rows - 1 && t.col === 0))!;
   s = mutate(s, (m) => {
-    m.tents = [...tents];
+    m.tents = mkTents(tents);
     // 直接传送到目标格并标记去程（保持测试聚焦宿营规则本身）
     m.position = target.id;
     if (!m.visitedOutbound.includes(target.id)) m.visitedOutbound.push(target.id);
@@ -58,29 +58,30 @@ describe('宿营：城市与村庄免费等待', () => {
 describe('宿营：野外必须帐篷且逐顶选择', () => {
   it('沙漠宿营：选中帐篷耐久 -1，其他帐篷不受影响', () => {
     const { s: s0 } = gotoTerrain('camp-desert', 'DESERT', [3, 1]);
-    // 明确选第 2 顶（B 1/3）→ 用掉后整顶消失，A 3/3 原样保留
-    const s = performAction(s0, { type: 'WAIT', tentIndex: 1 });
+    // 明确选第 2 顶（Tent B 1/3）→ 用掉后整顶消失，Tent A 3/3 原样保留
+    const s = performAction(s0, { type: 'WAIT', tentId: TENT_B });
     expect(s.daysUsed).toBe(1);
-    expect(s.tents).toEqual([3]);
+    expect(charges(s.tents)).toEqual([3]);
+    expect(s.tents[0].id).toBe(TENT_A); // 剩余的是 A，不是「下标 0 的帐篷」
   });
 
   it('草地宿营：选 A 只扣 A（系统不得自动选最低/最新）', () => {
     const { s: s0 } = gotoTerrain('camp-grass', 'GRASS', [1, 3]);
-    const s = performAction(s0, { type: 'WAIT', tentIndex: 0 });
-    expect(s.tents).toEqual([3]); // A 1/3 用掉消失，B 3/3 纹丝不动
+    const s = performAction(s0, { type: 'WAIT', tentId: TENT_A });
+    expect(charges(s.tents)).toEqual([3]); // A 1/3 用掉消失，B 3/3 纹丝不动
   });
 
   it('草地宿营：3/3 → 2/3', () => {
     const { s: s0 } = gotoTerrain('camp-grass2', 'GRASS', [3]);
-    const s = performAction(s0, { type: 'WAIT', tentIndex: 0 });
-    expect(s.tents).toEqual([2]);
+    const s = performAction(s0, { type: 'WAIT', tentId: TENT_A });
+    expect(charges(s.tents)).toEqual([2]);
   });
 
   it('绿洲普通停留（非修整）：+1 天、帐篷 -1、不恢复耐力', () => {
     const { s: s0 } = gotoTerrain('camp-oasis', 'OASIS', [3]);
-    const s = performAction(s0, { type: 'WAIT', tentIndex: 0 });
+    const s = performAction(s0, { type: 'WAIT', tentId: TENT_A });
     expect(s.daysUsed).toBe(1);
-    expect(s.tents).toEqual([2]);
+    expect(charges(s.tents)).toEqual([2]);
     expect(s.stamina).toBe(5); // 停留 ≠ 修整，不恢复耐力
     expect(Object.keys(s.oasisRestUsed).length).toBe(0); // 未占用修整次数
   });
@@ -94,23 +95,36 @@ describe('宿营：野外必须帐篷且逐顶选择', () => {
     const { s: s0 } = gotoTerrain('camp-ambiguous', 'DESERT', [3, 3]);
     expect(() => performAction(s0, { type: 'WAIT' })).toThrow(GameError);
   });
+
+  it('传一个不存在的 TentId → 抛错 TENT_NOT_FOUND，且不误扣其它帐篷', () => {
+    const { s: s0 } = gotoTerrain('camp-bad-id', 'DESERT', [3, 3]);
+    const before = charges(s0.tents);
+    let code = '';
+    try {
+      performAction(s0, { type: 'WAIT', tentId: TENT_C });
+    } catch (e) {
+      code = (e as GameError).code;
+    }
+    expect(code).toBe('TENT_NOT_FOUND');
+    expect(charges(s0.tents)).toEqual(before); // 状态未被修改
+  });
 });
 
 describe('矿区空等 = 野外宿营', () => {
   it('矿区等待：+1 天、不挖矿、帐篷 -1（挖矿本身不耗帐篷）', () => {
     let s = newGame('camp-mine', calmOverrides(newGame('camp-mine').map));
     s = mutate(s, (m) => {
-      m.tents = [3, 3];
+      m.tents = mkTents([3, 3]);
     });
     s = walkTo(s, nearestMineTile(s).tileId);
     expect(s.phase).toBe('MINING');
     // 挖矿 1 天：不耗帐篷
     s = performAction(s, { type: 'MINE' });
     expect(s.gemsKg).toBe(2);
-    expect(s.tents).toEqual([3, 3]);
+    expect(charges(s.tents)).toEqual([3, 3]);
     // 矿区空等：需要帐篷
-    s = performAction(s, { type: 'WAIT', tentIndex: 1 });
-    expect(s.tents).toEqual([3, 2]);
+    s = performAction(s, { type: 'WAIT', tentId: TENT_B });
+    expect(charges(s.tents)).toEqual([3, 2]);
     expect(s.gemsKg).toBe(2); // 等待不产出
   });
 

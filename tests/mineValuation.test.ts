@@ -1,22 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateMine } from '../src/game/map/generate';
+import { evaluateMine, computeGemPrice } from '../src/game/map/generate';
 import { minCostRoundTrip, tileIdOf, isNormalTile } from '../src/game/map/grid';
 import { gameConfig } from '../src/game/config/gameConfig';
 import type { GameMap, GridTile, TerrainType, TileId, WeatherType } from '../src/game/types';
 
 /**
- * 矿区价值公式测试（v0.1.2a：价格基准 = 最短合法往返方案的客观危险程度）。
- * 合成地图，完全确定。任何一项恶化都会推高评分/价格。
+ * 矿区价值公式测试（v0.1.2b：价格基准 = 最短合法往返方案的客观危险程度）。
+ * 全部尺寸从 gameConfig.map 派生（不写死旧地图尺寸）。合成地图，完全确定。
  */
 
-const ROWS = 10;
-const COLS = 12;
+const ROWS = gameConfig.map.rows;
+const COLS = gameConfig.map.cols;
 
 function buildSyntheticMap(
   terrainFn: (row: number, col: number) => TerrainType,
   weatherFn: (row: number, col: number, day: number) => WeatherType = () => 'SUNNY',
   mineARow = 0,
-  mineBRow = 6,
+  mineBRow = 3,
 ): GameMap {
   const tiles: Record<TileId, GridTile> = {};
   for (let r = 0; r < ROWS; r++) {
@@ -38,19 +38,10 @@ function buildSyntheticMap(
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const id = tileIdOf(r, c);
-      weather[id] = Array.from({ length: 46 }, (_, d) => weatherFn(r, c, d));
+      weather[id] = Array.from({ length: gameConfig.maxDays + 4 }, (_, d) => weatherFn(r, c, d));
     }
   }
-  return {
-    rows: ROWS,
-    cols: COLS,
-    cityId,
-    tiles,
-    mines: [],
-    weather,
-    encounters: {},
-    drought: {},
-  };
+  return { rows: ROWS, cols: COLS, cityId, tiles, mines: [], weather, encounters: {}, drought: {} };
 }
 
 function mineTileOf(map: GameMap, slot: 'A' | 'B'): TileId {
@@ -61,7 +52,41 @@ function priceOf(map: GameMap, slot: 'A' | 'B'): ReturnType<typeof evaluateMine>
   return evaluateMine(map, slot, mineTileOf(map, slot), 1.0);
 }
 
-describe('矿区价值公式（v0.1.2a 最短合法往返方案基准）', () => {
+/** 全草图的城市↔矿区最短往返：两倍曼哈顿距离（两条路径分别先横后纵 / 先纵后横） */
+const FULL_TRIP = 2 * (ROWS - 1 + (COLS - 1));
+
+describe('定价公式（v0.1.2b 标定后）', () => {
+  const cfg = gameConfig.mineValuation;
+
+  it('单价 = clamp((base + 难度 × scale) × jitter) 且落在配置区间内', () => {
+    expect(computeGemPrice(0, 1)).toBe(Math.max(cfg.clampMin, cfg.base));
+    expect(computeGemPrice(-100, 1)).toBe(cfg.clampMin); // 极低难度 → 下限
+    expect(computeGemPrice(1000, 1)).toBe(cfg.clampMax); // 极高难度 → 上限
+    // 同一份代码路径被 evaluateMine 复用（单一来源）
+    const m = buildSyntheticMap(() => 'GRASS');
+    expect(priceOf(m, 'A').gemPrice).toBe(computeGemPrice(priceOf(m, 'A').difficultyScore, 1));
+  });
+
+  it('难度单调不减 → 单价单调不减（难度越高越值钱，但只由客观难度决定）', () => {
+    let prev = -Infinity;
+    for (let d = -50; d <= 150; d += 5) {
+      const p = computeGemPrice(d, 1);
+      expect(p).toBeGreaterThanOrEqual(prev);
+      prev = p;
+    }
+  });
+
+  it('旧的“难度 0 = 80 元”锚点已被重标定（难度 0 → 新区间下限）', () => {
+    // 旧配置会把难度 0~35 全部钉在下限 80；新配置只在难度 < 0 时触底
+    expect(cfg.base).toBe(cfg.clampMin);
+    expect(cfg.base).toBeGreaterThan(80);
+    expect(computeGemPrice(0, 1)).toBe(cfg.base);
+    // 中段难度必须拉开差距，而不是全部挤在下限
+    expect(computeGemPrice(40, 1) - computeGemPrice(0, 1)).toBeGreaterThan(50);
+  });
+});
+
+describe('矿区价值评估（v0.1.2b 最短合法往返方案基准）', () => {
   const allGrass = () => 'GRASS' as TerrainType;
   const allDesert = () => 'DESERT' as TerrainType;
 
@@ -82,25 +107,25 @@ describe('矿区价值公式（v0.1.2a 最短合法往返方案基准）', () =>
     expect(normalA.some((id) => normalB.includes(id))).toBe(false);
   });
 
-  it('价格基准 = 最短合法往返方案：全草图 Mine A(0,11) 的往返长度应为 40（20+20）', () => {
-    const m = buildSyntheticMap(allGrass, undefined, 0, 5);
+  it('全草图最远矿区（row=0）的往返长度 = 2 × 曼哈顿距离，普通格数 = 长度 - 2', () => {
+    const m = buildSyntheticMap(allGrass, undefined, 0, 3);
     const a = priceOf(m, 'A');
-    expect(a.detail.roundTripLength).toBe(40);
-    // 往返途经 38 个普通草格（端点城市/矿区不计风险），每格 7.0 → 266
-    expect(a.difficultyScore).toBe(266);
+    expect(a.detail.roundTripLength).toBe(FULL_TRIP);
+    const normalTiles = FULL_TRIP - 2;
+    expect(a.difficultyScore).toBe(Math.round(normalTiles * gameConfig.tileRisk.GRASS * 10) / 10);
+    // 难度的确是价格基数：全草图进入上限区间
+    expect(a.gemPrice).toBe(gameConfig.mineValuation.clampMax);
   });
 
   it('地形风险：草地走廊（本作高代价地形）比沙漠走廊评分更高', () => {
     const grassMap = buildSyntheticMap(allGrass);
     const desertMap = buildSyntheticMap(allDesert);
-    const grassScore = priceOf(grassMap, 'A').difficultyScore;
-    const desertScore = priceOf(desertMap, 'A').difficultyScore;
-    expect(grassScore).toBeGreaterThan(desertScore);
+    expect(priceOf(grassMap, 'A').difficultyScore).toBeGreaterThan(priceOf(desertMap, 'A').difficultyScore);
   });
 
   it('距离成本：更远的矿区往返更长、评分更高（地形相同）', () => {
-    const nearMap = buildSyntheticMap(allGrass, undefined, 9, 3); // Mine A 在第 9 行（离城市近）
-    const farMap = buildSyntheticMap(allGrass, undefined, 0, 3); // Mine A 在第 0 行（离城市远）
+    const nearMap = buildSyntheticMap(allGrass, undefined, ROWS - 3, 2); // 离城市近（|5-2| ≥ 最小行距）
+    const farMap = buildSyntheticMap(allGrass, undefined, 0, 3); // 离城市远
     const near = priceOf(nearMap, 'A');
     const far = priceOf(farMap, 'A');
     expect(far.detail.roundTripLength).toBeGreaterThan(near.detail.roundTripLength);
@@ -114,19 +139,21 @@ describe('矿区价值公式（v0.1.2a 最短合法往返方案基准）', () =>
     expect(priceOf(sunny, 'A').gemPrice).toBe(priceOf(severe, 'A').gemPrice);
   });
 
-  it('价格在 80~320 区间内；随机扰动只小幅影响价格（0.9~1.1）', () => {
+  it('随机扰动只小幅影响价格（jitter 0.9~1.1）', () => {
     const m = buildSyntheticMap(allGrass);
-    const base = evaluateMine(m, 'A', '0:11', 1.0);
-    const low = evaluateMine(m, 'A', '0:11', gameConfig.mineValuation.jitterMin);
-    const high = evaluateMine(m, 'A', '0:11', gameConfig.mineValuation.jitterMax);
+    const id = mineTileOf(m, 'A');
+    const base = evaluateMine(m, 'A', id, 1.0);
+    const low = evaluateMine(m, 'A', id, gameConfig.mineValuation.jitterMin);
+    const high = evaluateMine(m, 'A', id, gameConfig.mineValuation.jitterMax);
     expect(low.gemPrice).toBeLessThanOrEqual(base.gemPrice);
     expect(high.gemPrice).toBeGreaterThanOrEqual(base.gemPrice);
     expect(high.gemPrice - low.gemPrice).toBeLessThanOrEqual(Math.ceil(base.gemPrice * 0.21));
-    expect(base.gemPrice).toBeGreaterThanOrEqual(gameConfig.mineValuation.clampMin);
-    expect(base.gemPrice).toBeLessThanOrEqual(gameConfig.mineValuation.clampMax);
+  });
+
+  it('任何合成地形下价格都落在配置区间内', () => {
     for (let i = 0; i < 20; i++) {
-      const rowA = i % 10;
-      const rowB = (rowA + 5) % 10;
+      const rowA = i % (ROWS - gameConfig.map.mineBottomForbiddenRows);
+      const rowB = (rowA + gameConfig.map.mineMinRowGap) % (ROWS - gameConfig.map.mineBottomForbiddenRows);
       const map = buildSyntheticMap(allGrass, undefined, rowA, rowB);
       for (const mine of [priceOf(map, 'A'), priceOf(map, 'B')]) {
         expect(mine.gemPrice).toBeGreaterThanOrEqual(gameConfig.mineValuation.clampMin);
@@ -136,8 +163,7 @@ describe('矿区价值公式（v0.1.2a 最短合法往返方案基准）', () =>
   });
 
   it('两矿独立评估：同一张图上 A/B 评分随各自环境变化', () => {
-    // Mine A 周围全草（近），Mine B 在第 0 行（远）→ B 评分更高
-    const m = buildSyntheticMap(allGrass, undefined, 9, 0);
+    const m = buildSyntheticMap(allGrass, undefined, ROWS - 3, 0);
     const a = priceOf(m, 'A');
     const b = priceOf(m, 'B');
     expect(b.detail.roundTripLength).toBeGreaterThan(a.detail.roundTripLength);

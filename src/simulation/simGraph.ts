@@ -98,9 +98,19 @@ export function returnForbidden(view: FairView): Set<string> {
   return banned;
 }
 
+/**
+ * 返程可通行节点过滤：当前矿区豁免（可穿透），只有其它矿区不可作为通路
+ * —— 必须与引擎 getLegalMoves / evaluateViability 完全一致，
+ * 否则 Bot 会规划出引擎判定为非法的路线。
+ */
+export function returnViaFilter(view: FairView): (id: string) => boolean {
+  const blocked = view.map.mineIds.filter((id) => id !== view.mineEntranceId);
+  return (id: string) => !blocked.includes(id);
+}
+
 /** 从当前位置到城市的最短合法返程移动数（不存在时为 null） */
 export function minReturnDays(view: FairView): number | null {
-  const path = bfsPath(view.map, view.position, view.map.cityId, returnForbidden(view));
+  const path = bfsPath(view.map, view.position, view.map.cityId, returnForbidden(view), returnViaFilter(view));
   return path ? path.length - 1 : null;
 }
 
