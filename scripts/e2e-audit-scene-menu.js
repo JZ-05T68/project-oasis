@@ -38,7 +38,7 @@
     assert('进入游戏主界面', O.gameReady());
 
     /* ---------- 城市控件 ---------- */
-    await auditClick('城市 · 购买帐篷', byTextOne('button', '购买帐篷'), 'CHANGE', { note: '现金 -400' });
+    await auditClick('城市 · 购买帐篷', byTextOne('button', '购买帐篷'), 'CHANGE', { note: '现金 -帐篷单价（读 gameConfig，当前 700）' });
     await auditClick('城市 · 购买指南针', byTextOne('button', '购买指南针'), 'CHANGE', { note: '现金 -100' });
     await auditClick('城市 · 再次购买帐篷（第 2 顶）', byTextOne('button', '购买帐篷'), 'CHANGE');
     await auditClick('城市 · 再次购买帐篷（第 3 顶）', byTextOne('button', '购买帐篷'), 'CHANGE');

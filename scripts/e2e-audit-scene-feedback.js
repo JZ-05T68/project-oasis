@@ -15,9 +15,15 @@
   const O = window.__OASIS;
   const { $, $$, txt, rec, pass, fail, assert, auditClick, sleep } = O;
   const R = O.R;
+  // 过夜平衡实验（2026-09-14~15）：帐篷 400 → 700。这里从页面按钮文案读取，不再写死。
   const CASH0 = 2000;
-  const TENT_PRICE = 400;
-  const COMPASS_PRICE = 100;
+  const priceOf = (label) => {
+    const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes(label));
+    const m = b ? (b.textContent || '').match(/(\d+)\s*元/) : null;
+    return m ? Number(m[1]) : NaN;
+  };
+  const TENT_PRICE = priceOf('购买帐篷');
+  const COMPASS_PRICE = priceOf('购买指南针');
 
   function logText() {
     return $$('.log-list li')
