@@ -11,6 +11,7 @@ import type {
   WeatherType,
 } from '../game/types';
 import { gameConfig } from '../game/config/gameConfig';
+import { accidentChanceForMiningDay, desertExtraDaysForLoad, isOverloaded, yieldForMiningDay } from '../game/rules/mining';
 import { getLegalMoves, getAvailableActions, getCurrentWeather, isTerrainKnown } from '../game';
 import { gridNeighbors } from '../game/map/grid';
 
@@ -76,6 +77,44 @@ export interface FairView {
   mineEntranceId: TileId | null;
   gemPrice: number | null;
   routeScore: number | null;
+
+  /**
+   * 机制公开参数（Bot 与真人看到的是同一份规则说明，不含任何隐藏信息）。
+   * 定义见 gameConfig.mechanisms —— 默认全部 enabled = false。
+   */
+  rules: {
+    /** 下一个采矿日的产量（kg）——「边际收益」的公开来源 */
+    nextMiningYield: number;
+    /** 下一个采矿日发生事故的概率（0 = 机制关闭） */
+    nextMiningAccidentChance: number;
+    /** 本局已经挖了多少天（1-based 的下一天 = miningDays + 1） */
+    miningDays: number;
+    diminishingYield: { enabled: boolean; mode: 'tier' | 'smooth' };
+    mineProductivity: { enabled: boolean; reveal: 'start' | 'arrival' };
+    accidentRisk: {
+      enabled: boolean;
+      /** 事故会吃掉当日产量的这个比例 */
+      yieldLossFraction: number;
+      /** 事故会额外消耗的天数 */
+      extraDays: number;
+      /** 事故会吃掉已携带宝石的这个比例 */
+      cargoLossFraction: number;
+    };
+    loadReturn: {
+      enabled: boolean;
+      thresholdKg: number;
+      stepKg: number;
+      maxExtraPerDesertTile: number;
+      allowDrop: boolean;
+      dropStepKg: number;
+      /** 当前载重下，穿越 1 格沙漠的额外天数（0 = 不受影响） */
+      extraDaysPerDesertTile: number;
+      /** 当前是否已经超过载重阈值 */
+      overloaded: boolean;
+      /** 抵达矿区时的勘察半径（0 = 关闭） */
+      surveyRadius: number;
+    };
+  };
 
   visitedOutbound: TileId[];
   visitedReturn: TileId[];
@@ -155,6 +194,39 @@ export function buildFairView(state: GameState): FairView {
     mineEntranceId: state.mineEntranceId,
     gemPrice: state.gemPrice,
     routeScore: state.routeScore,
+    rules: {
+      nextMiningYield: yieldForMiningDay(
+        state.stats.miningDays + 1,
+        state.mineEntranceId ? state.map.tiles[state.mineEntranceId]?.mineSlot : undefined,
+      ),
+      nextMiningAccidentChance: accidentChanceForMiningDay(state.stats.miningDays + 1),
+      miningDays: state.stats.miningDays,
+      diminishingYield: {
+        enabled: gameConfig.mechanisms.diminishingYield.enabled,
+        mode: gameConfig.mechanisms.diminishingYield.mode,
+      },
+      mineProductivity: {
+        enabled: gameConfig.mechanisms.mineProductivity.enabled,
+        reveal: gameConfig.mechanisms.mineProductivity.reveal,
+      },
+      accidentRisk: {
+        enabled: gameConfig.mechanisms.accidentRisk.enabled,
+        yieldLossFraction: gameConfig.mechanisms.accidentRisk.yieldLossFraction,
+        extraDays: gameConfig.mechanisms.accidentRisk.extraDays,
+        cargoLossFraction: gameConfig.mechanisms.accidentRisk.cargoLossFraction,
+      },
+      loadReturn: {
+        enabled: gameConfig.mechanisms.loadReturn.enabled,
+        thresholdKg: gameConfig.mechanisms.loadReturn.thresholdKg,
+        stepKg: gameConfig.mechanisms.loadReturn.stepKg,
+        maxExtraPerDesertTile: gameConfig.mechanisms.loadReturn.maxExtraPerDesertTile,
+        allowDrop: gameConfig.mechanisms.loadReturn.allowDrop,
+        dropStepKg: gameConfig.mechanisms.loadReturn.dropStepKg,
+        extraDaysPerDesertTile: desertExtraDaysForLoad(state.gemsKg),
+        overloaded: isOverloaded(state.gemsKg),
+        surveyRadius: gameConfig.mechanisms.loadReturn.surveyRadius,
+      },
+    },
     visitedOutbound: state.visitedOutbound,
     visitedReturn: state.visitedReturn,
     explored: state.explored,

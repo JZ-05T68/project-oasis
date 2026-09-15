@@ -15,7 +15,11 @@ export function isTerrainKnown(state: GameState, tileId: TileId): boolean {
 
 /** 执行情报揭示，返回新揭示的格子列表（直接修改传入的可变克隆） */
 export function revealIntelAround(state: GameState, from: TileId): TileId[] {
-  const radius = gameConfig.intelRevealRadius;
+  return revealIntelAroundRadius(state, from, gameConfig.intelRevealRadius);
+}
+
+/** 指定半径的情报揭示（loadReturn.surveyRadius 用；与 revealIntelAround 同一套规则） */
+export function revealIntelAroundRadius(state: GameState, from: TileId, radius: number): TileId[] {
   const revealed: TileId[] = [];
   for (const id of Object.keys(state.map.tiles)) {
     if (manhattan(from, id) > radius) continue;

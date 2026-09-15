@@ -3,6 +3,8 @@ import type { EventChoice, GameAction, GameState, TileId } from '../game/types';
 import { hashSeed, nextRandom } from '../game/random/rng';
 import { gameConfig } from '../game/config/gameConfig';
 import { buildFairView, FairView } from './fairView';
+import { bfsPath, isNormalTile } from '../game/map/grid';
+import { returnViaFilterExcept } from '../game/rules/movement';
 import type { RunResult } from './metrics';
 import { summarizeEventChoice } from './metrics';
 import {
@@ -139,7 +141,29 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     events: [],
     nodeVisits,
     edgeUses,
+    droppedKg: state.stats.droppedKg ?? 0,
+    miningAccidents: state.stats.miningAccidents ?? 0,
+    miningAccidentLostKg: state.stats.miningAccidentLostKg ?? 0,
+    loadPenaltyDays: state.stats.loadPenaltyDays ?? 0,
+    returnPath: [...state.visitedReturn],
+    returnFirstStep: state.visitedReturn.filter((id) => id !== state.mineEntranceId)[0] ?? null,
+    returnBfsFirstStep: bfsFirstReturnStep(state),
   };
+}
+
+/**
+ * 重建「纯最短跳数返程」的第一步。
+ *
+ * 为什么可行：返程起点的禁行集合 = 去程烧掉的全部普通格（城市与当前矿区豁免），
+ * 而去程足迹在终态里原封不动保留着，因此不需要中途快照就能精确重建。
+ */
+function bfsFirstReturnStep(state: GameState): TileId | null {
+  const mine = state.mineEntranceId;
+  if (!mine) return null;
+  const forbidden = state.visitedOutbound.filter((id) => isNormalTile(state.map, id));
+  const via = returnViaFilterExcept(state.map, mine);
+  const p = bfsPath(state.map, mine, state.map.cityId, forbidden, via);
+  return p && p.length > 1 ? p[1] : null;
 }
 
 /** 运行单局。Bot 的每个决策都会经过引擎合法性校验（非法即抛错=框架 Bug） */

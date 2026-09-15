@@ -76,6 +76,27 @@ export interface RunResult {
   villageWorkIncome?: number;
   /** 【Shadow-Lab 专用】返程负重模型造成的额外耐力损失（正式游戏恒为 undefined） */
   returnLoadStaminaLoss?: number;
+  /* ---- Autonomous Mechanism Evolution Lab 遥测 ---- */
+  /** 主动丢弃的宝石总量（kg；机制关闭时恒为 0） */
+  droppedKg?: number;
+  /** 采矿事故次数（机制关闭时恒为 0） */
+  miningAccidents?: number;
+  /** 采矿事故损失掉的宝石（kg） */
+  miningAccidentLostKg?: number;
+  /** 返程负重惩罚额外消耗的天数 */
+  loadPenaltyDays?: number;
+  /** 返程逐格轨迹（含起点矿区，按顺序），用于返程路线多样性统计 */
+  returnPath?: TileId[];
+  /** 返程第一个分歧点的选择（用于 routeSwitchRate / returnRouteDiversity） */
+  returnFirstStep?: TileId | null;
+  /**
+   * 「纯最短跳数路线」在返程起点的第一步。
+   * routeSwitchRate = 实际第一步 ≠ 纯最短路第一步 的局占比，
+   * 用来区分「路线多样性只是不同地图造成的」与「规划真的选了非最短路」。
+   * 注意：返程起点的禁行集合完全由「去程足迹」决定，而它保存在终态里，
+   * 因此可以在不重放对局的前提下精确重建。
+   */
+  returnBfsFirstStep?: TileId | null;
   gemsKg: number;
   gemPrice: number | null;
   gemRevenue: number;

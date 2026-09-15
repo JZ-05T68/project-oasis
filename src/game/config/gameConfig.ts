@@ -3,7 +3,182 @@
  * 平衡调整只改这里（并同步 docs/GAME_DESIGN.md），不允许散落硬编码。
  */
 
+/* ------------------------------------------------------------------ */
+/* 候选机制开关（Autonomous Mechanism Evolution Lab）                    */
+/* ------------------------------------------------------------------ */
+/**
+ * 设计约束：
+ *  - **默认全部 enabled = false**，因此正式游戏行为与落盘前完全一致；
+ *  - 只有 `OASIS_CONFIG_OVERRIDE` 把某个机制打开时，引擎才会走新分支；
+ *  - 通过 Promotion Gate 的机制，把这里的默认值改成 true 即完成「正式落盘」，
+ *    回滚只需改回 false。
+ *
+ * 显式声明接口（而不是直接写进 `as const` 字面量）的原因：
+ * `as const` 会把 `false` 收窄成字面量类型 `false`，导致 `cfg.enabled` 的
+ * 真值分支在 TS 里变成 never，无法编写实验分支。
+ */
+export interface DiminishingYieldConfig {
+  enabled: boolean;
+  /** tier = 分段常数产量；smooth = 每多挖一天按 decay 递减 */
+  mode: 'tier' | 'smooth';
+  /** tier 模式：各段产量（kg/天） */
+  tierYields: number[];
+  /** tier 模式：第 n 段从「第几个采矿日」开始（1-based，长度 = tierYields.length - 1） */
+  tierStarts: number[];
+  /** smooth 模式：第 1 天产量 */
+  smoothBase: number;
+  /** smooth 模式：每天乘以的衰减系数 */
+  smoothDecay: number;
+  /** smooth 模式：产量下限（kg/天，不再继续跌） */
+  smoothFloor: number;
+}
+
+export interface AccidentRiskConfig {
+  enabled: boolean;
+  /** 第 n 个采矿日的事故概率 = min(cap, base + (n-1) × growth) */
+  baseChance: number;
+  growthPerDay: number;
+  capChance: number;
+  /** 事故损失：当日产量的损失比例（0~1） */
+  yieldLossFraction: number;
+  /** 事故损失：强制额外消耗的天数 */
+  extraDays: number;
+  /** 事故损失：已携带宝石的损失比例（0 = 只损当日产量） */
+  cargoLossFraction: number;
+}
+
+export interface LoadReturnConfig {
+  enabled: boolean;
+  /** 触发返程负担的载重阈值（kg）：低于它完全不受影响 */
+  thresholdKg: number;
+  /** 超过阈值后，每多背 stepKg，穿越沙漠每格再 +1 天 */
+  stepKg: number;
+  /** 单格沙漠额外天数的上限（防止小地图被彻底压死） */
+  maxExtraPerDesertTile: number;
+  /** 是否允许玩家主动丢弃宝石减负 */
+  allowDrop: boolean;
+  /** 单次丢弃的 kg 粒度（UI 按钮与 Bot 动作共用） */
+  dropStepKg: number;
+  /**
+   * 抵达矿区时的「勘察半径」（曼哈顿距离，0 = 关闭）。
+   *
+   * 存在的唯一理由：**返程路线选择在信息上是不成立的**——
+   * 返程规定不得重走去程普通格，而这些格恰恰是玩家唯一探索过的格，
+   * 于是返程每一步都必然踏进战争迷雾，任何"按地形选路"的机制都无法影响决策
+   * （实测所有地形依赖型机制的 Δroute 恒为 0%）。
+   * 勘察半径给玩家一小段**有信息**的返程起手空间，让路线取舍第一次成为可能。
+   */
+  surveyRadius: number;
+}
+
+export interface MineProductivityConfig {
+  enabled: boolean;
+  /** Mine A / Mine B 的产量倍率（属于矿本身，与玩家实际路线无关） */
+  scaleA: number;
+  scaleB: number;
+  /** 公开时机：开局公开 / 到矿后才发现 */
+  reveal: 'start' | 'arrival';
+}
+
+export interface MechanismConfig {
+  diminishingYield: DiminishingYieldConfig;
+  accidentRisk: AccidentRiskConfig;
+  loadReturn: LoadReturnConfig;
+  mineProductivity: MineProductivityConfig;
+}
+
+const baseMechanisms: MechanismConfig = {
+  /**
+   * Candidate Family A — 采矿边际收益递减。
+   * 目的：让「再挖一天」的边际收益随停留天数下降。
+   *
+   * 注意（结构性预判，实验会验证）：在本游戏里"多挖一天"唯一的代价是时间，
+   * 而提前返程不产生任何收益，因此**单纯的递减产量预计不会改变任何决策**
+   * （任何 y > 0 都仍然值得挖）。递减只有在与"停留代价递增"（accidentRisk /
+   * loadReturn）叠加时才会真正把边际分析推向拐点。
+   */
+  diminishingYield: {
+    enabled: false,
+    mode: 'tier',
+    tierYields: [2.5, 2.0, 1.5],
+    tierStarts: [4, 8],
+    smoothBase: 2.6,
+    smoothDecay: 0.88,
+    smoothFloor: 1.1,
+  },
+
+  /**
+   * Candidate Family C — 随采矿时间上升的独立风险。
+   * 目的：给"再挖一天"加上递增的期望损失，使 继续挖 / 现在返程 出现真实拐点。
+   * 事故后果刻意**不**走耐力通道（不 −stamina、不直接死亡），而是
+   * 「损失部分当日产量 + 强制多留 N 天」；daysUsed 的损失会直接吃掉返程时间余量，
+   * 因此它惩罚的是"贪心"而不是"耐力管理"。
+   */
+  accidentRisk: {
+    enabled: false,
+    baseChance: 0.05,
+    growthPerDay: 0.025,
+    capChance: 0.3,
+    yieldLossFraction: 0.5,
+    extraDays: 1,
+    cargoLossFraction: 0,
+  },
+
+  /**
+   * Candidate Family D（重设计）— 返程负担。
+   *
+   * 与上一轮被否决的「携带 ≥Xkg，每 5 步 −1 耐力」不同：
+   * 旧模型只是"纯加伤害"，不改变任何决策。
+   * 新模型改为**改变移动代价结构与路线优劣**：
+   *   载重 ≥ 阈值时，返程每进入 1 格沙漠多耗 1 天
+   *   → 沙漠不再是最快的路，玩家/ Bot 必须在「短沙路」与「长草路」之间做真实取舍；
+   *   → 并且可以主动丢弃宝石减负，形成一个 1 按钮的显式决策。
+   */
+  loadReturn: {
+    /**
+     * v0.1.4 正式落盘（Autonomous Mechanism Evolution Lab，Promotion Gate 9/9 通过）。
+     *
+     * 25,000 局大样本配对结果（相对落盘前基线）：
+     *   采矿决策改变率 81.84%（一级指标）；最热采矿模板仅占 46.3%、采矿天数取值 13 种
+     *   → 没有支配策略；合理玩家胜率 83.92%（65~90% 健康带内）；
+     *   STAMINA_EXHAUSTED 15.28%（不升反降，说明没有把问题推给耐力）；
+     *   TIMEOUT 0.08%；EV 保持基线的 89.9%；主动丢货率 38.96%。
+     *
+     * 参数是被搜索出来的，不是人工指定：Phase A（13 候选 × 20 Bot × 500 局）
+     * → Phase B（13 个参数点 × 10 Bot × 800 局）→ Phase C（6 候选 × 10 Bot × 2500 局）。
+     * 阈值 24 / 步长 6 / 上限 1 是在「决策改变率 ≥ 15% 且 EV 不低于基线 70%」约束下
+     * 同时保住策略多样性的最优点（阈值 28 会让决策改变率掉到 55%，
+     * 阈值 16~20 会把 EV 压到 62~69%）。
+     */
+    enabled: true,
+    thresholdKg: 24,
+    stepKg: 6,
+    maxExtraPerDesertTile: 1,
+    allowDrop: true,
+    dropStepKg: 4,
+    surveyRadius: 0,
+  },
+
+  /**
+   * Candidate Family B — 矿区生产力差异。
+   *
+   * 硬性约束（用户指定）：该属性必须属于**矿本身**，不受玩家实际路线影响，
+   * 因此它只和 slot（A/B）绑定，与 gemPrice / 「危险路线刷价」原则完全解耦。
+   *
+   * 结构性预判（实验会验证）：产量倍率是**全局缩放**，任何 >0 的倍率都仍然满足
+   * 「多挖一天 = 多一份正收益」，因此预计**不会**改变任何采矿**时长**决策；
+   * 它只会改变收益水平与两矿的相对吸引力（即采矿**地点**决策）。
+   */
+  mineProductivity: {
+    enabled: false,
+    scaleA: 1.3,
+    scaleB: 0.7,
+    reveal: 'start',
+  },
+};
+
 const baseConfig = {
+  mechanisms: baseMechanisms,
   /* ---------- 时间 ---------- */
   maxDays: 42,
 
@@ -41,14 +216,22 @@ const baseConfig = {
   /**
    * 帐篷单价。
    *
-   * 过夜平衡实验（2026-09-14~15）结论：400 → **700**。
-   * 理由（28k/21k 局仿真）：400 元时「多买帐篷」几乎没有代价——
-   * WastefulBot（5 顶帐篷）仍有 97.5% 胜率、EV 排名接近合理玩家；
-   * 700 元时过度囤积的 EV 明显低于合理配置（2162 vs 2526），
-   * 同时合理玩家胜率从 91.35% 回到 77.33%（目标带 70~90% 中段），
-   * 并出现了「轻装＝高 EV 低胜率 / 重装＝稳但收益低」的真实取舍。
+   * 过夜平衡实验（2026-09-14~15）：400 → 700。
+   *
+   * **Autonomous Mechanism Evolution Lab（2026-09-15）修正：700 → 625。**
+   * 理由（8 档 × 8000 局专项扫描，500/525/550/575/600/625/650/700，全部在
+   * 新机制「负重返程」生效的前提下跑，见 docs/GAME_DESIGN.md §15.1）：
+   *  - 设计硬约束是「3 顶买得起、4 顶买不起」→ 价格必须落在 (500, 666]；
+   *    700 元下 3×700 = 2100 > 2000，「3 顶帐篷」这个设计档位实际上已经不存在。
+   *  - 625 是**唯一**同时满足两条 antiWasteful 判据的合法档位：
+   *    WastefulBot EV 1924 < 合理玩家 2241（不被乱囤装备占优），
+   *    且 WastefulBot 胜率 72.13% < 合理玩家 72.63%（不稳定占优）。
+   *    650 虽然 TentScore 更高，但 WastefulBot 胜率反超合理玩家；575/600 则相反地
+   *    让 WastefulBot 的 EV 反超。
+   *  - 625 下 3 顶帐篷花掉 1875 元，只剩 125 元 —— 正好满足
+   *    「买 3 顶以后几乎没有资源购买其他装备」的设计意图。
    */
-  tentPrice: 700,
+  tentPrice: 625,
   tentDesertCharges: 3,
   compassPrice: 100,
   /** 商队二手帐篷价格与耐久 */

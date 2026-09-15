@@ -59,6 +59,18 @@ function RulesContent() {
         每天挖 <b>2kg</b> 宝石，挖矿<b>不消耗帐篷</b>。矿区安全无天气无遭遇。
         但在矿区"什么都不做"地等待属于野外宿营：需要帐篷、耐久 -1。
       </p>
+      <h4>八之二、负重与返程（v0.1.4 正式规则）</h4>
+      <p>
+        宝石背得越多，驼队穿越沙漠越吃力：载重超过 <b>{gameConfig.mechanisms.loadReturn.thresholdKg}kg</b> 之后，
+        每多背 <b>{gameConfig.mechanisms.loadReturn.stepKg}kg</b>，返程每穿越 <b>1 格沙漠</b>就
+        <b>多耗 {gameConfig.mechanisms.loadReturn.maxExtraPerDesertTile} 天</b>
+        （单格最多 +{gameConfig.mechanisms.loadReturn.maxExtraPerDesertTile} 天）。
+      </p>
+      <p>
+        觉得太重，可以随时<b>丢弃宝石</b>减负：丢弃<b>不消耗时间</b>、也不消耗金钱，
+        载重降到 {gameConfig.mechanisms.loadReturn.thresholdKg}kg 以下就完全恢复正常速度。
+        所以「再挖一天」不只是多花一天 —— 它还会让你的回家路变长。
+      </p>
       <h4>九、天气预报</h4>
       <p>
         天气预报<b>使用现金购买</b>：每包 <b>{gameConfig.forecast.packPrice} 元</b>，

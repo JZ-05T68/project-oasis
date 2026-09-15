@@ -254,6 +254,7 @@ export type GameActionType =
   | 'BUY'
   | 'BUY_FORECAST_PACK'
   | 'USE_FORECAST'
+  | 'DROP_GEMS'
   | 'WAIT';
 
 export interface GameAction {
@@ -265,6 +266,8 @@ export interface GameAction {
    * v0.1.2b：传帐篷稳定 ID（TentId），不再使用 array index。
    */
   tentId?: TentId;
+  /** DROP_GEMS：本次丢弃的宝石 kg（缺省 = 机制的 dropStepKg） */
+  dropKg?: number;
 }
 
 /** 提供给 UI 的行动描述 */
@@ -322,6 +325,15 @@ export interface GameStats {
   miningDays: number;
   /** 开始返程时的 daysUsed 快照 */
   returnStartDay: number | null;
+  /* ---- Autonomous Mechanism Evolution Lab 遥测（机制关闭时恒为 0） ---- */
+  /** 主动丢弃的宝石总量（kg） */
+  droppedKg: number;
+  /** 采矿事故次数 */
+  miningAccidents: number;
+  /** 采矿事故累计损失的宝石（kg） */
+  miningAccidentLostKg: number;
+  /** 返程负重惩罚累计额外消耗的天数 */
+  loadPenaltyDays: number;
 }
 
 export interface GameState {

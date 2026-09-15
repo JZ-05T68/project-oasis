@@ -23,10 +23,17 @@ import { parseTileId, tileIdOf } from '../map/grid';
 import { weatherForDay, weatherNames } from '../rules/weather';
 import { pregeneratedEncounter } from '../rules/encounters';
 import { consumeTentCharge, consumeTentForRainstorm, tentIdOf, tentName } from '../rules/equipment';
-import { isTerrainKnown, revealIntelAround } from '../rules/reveal';
+import { isTerrainKnown, revealIntelAround, revealIntelAroundRadius } from '../rules/reveal';
 import { getLegalMoves, hasLegalReturnPath, isNormalTile } from '../rules/movement';
 import { evaluateViability } from '../rules/viability';
 import { computeRouteScore, computeStarRating, starLabel } from '../rules/routeScore';
+import {
+  desertExtraDaysForLoad,
+  isOverloaded,
+  returnMoveExtraDays,
+  rollMiningAccident,
+  yieldForMiningDay,
+} from '../rules/mining';
 import type { GameMap } from '../types';
 
 export { computeSettlement } from '../rules/settlement';
@@ -57,6 +64,11 @@ function pushLogAt(state: GameState, day: number, kind: LogEntry['kind'], text: 
 
 function makeEventId(state: GameState, kind: string, tileId: TileId | null): string {
   return `${kind}@${tileId ?? '-'}#d${state.daysUsed}#${state.pendingEvents.length}`;
+}
+
+/** kg 一律保留 2 位小数：递减产量与事故损失会产生浮点尾数，直接比较会破坏确定性断言 */
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
 }
 
 function enqueue(state: GameState, event: GameState['pendingEvents'][number]): void {
@@ -293,6 +305,10 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
       outboundDays: null,
       miningDays: 0,
       returnStartDay: null,
+      droppedKg: 0,
+      miningAccidents: 0,
+      miningAccidentLostKg: 0,
+      loadPenaltyDays: 0,
     },
     log: [],
   };
@@ -364,6 +380,26 @@ export function performMove(state: GameState, toTileId: TileId): GameState {
   }
   pushLog(s, 'info', `第 ${s.daysUsed} 天：抵达 (${tile.row},${tile.col}) ${terrainBadge(tile.terrain)}，天气：${weatherNames[getWeatherForDay(s, toTileId, s.daysUsed)]}。`);
 
+  // 返程负重惩罚（Candidate Family D 重设计）：载重 ≥ 阈值时穿越沙漠额外耗天。
+  // 放在「天气结算之前」是有意为之——这多耗的一天就是"骆驼在沙里挪不动"的那一天，
+  // 它同样会走时间轴，所以到达当天结算的天气就是慢速行进后的那一天。
+  if (s.phase === 'RETURN') {
+    const extra = returnMoveExtraDays(tile.terrain, s.gemsKg);
+    if (extra > 0) {
+      s.stats.loadPenaltyDays += extra;
+      pushLog(s, 'bad', `负重 ${s.gemsKg}kg 的驼队陷在沙里，穿越这格沙漠多耗了 ${extra} 天（累计额外 ${s.stats.loadPenaltyDays} 天）。`);
+      if (!addDays(s, extra)) {
+        recordResult(s, {
+          title: '负重超时',
+          message: '满载的驼队被黄沙拖垮，最终没能走出荒野。',
+          kind: 'bad',
+          force: true,
+        });
+        return s;
+      }
+    }
+  }
+
   // 回城 = 胜利（仅可能发生在返程；天气不再结算）
   if (tile.terrain === 'CITY') {
     s.phase = 'FINISHED';
@@ -422,6 +458,24 @@ function enterMine(s: GameState): void {
   // 路线风险评分：仅统计展示
   const result = computeRouteScore(s);
   s.routeScore = result.score;
+
+  // 勘察（可选机制）：抵达矿区时揭示周边地形，给返程起手一段有信息的空间
+  const surveyRadius = gameConfig.mechanisms.loadReturn.surveyRadius;
+  if (surveyRadius > 0) {
+    const revealed = revealIntelAroundRadius(s, s.position, surveyRadius);
+    if (revealed.length > 0) {
+      const names = revealed.map((id) => {
+        const t = s.map.tiles[id];
+        return `(${t.row},${t.col})${terrainBadge(t.terrain)}`;
+      });
+      recordResult(s, {
+        title: '矿区勘察',
+        message: `安顿好驮队之后，你先勘察了矿区周边地形：${names.join('、')}。`,
+        kind: 'good',
+        force: true,
+      });
+    }
+  }
 
   // v0.1.2a：价格属于最终鉴定结果，进矿不再展示/锁定展示
   pushLog(s, 'good', `已进入 ${tile.mineSlot === 'A' ? 'Mine A' : 'Mine B'}。宝石单价将在成功返城鉴定后公布。`);
@@ -717,6 +771,26 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     disabledReason: state.forecastCharges <= 0 ? '没有剩余预报次数' : undefined,
   });
 
+  // 主动丢弃宝石减负（Candidate Family D4；仅在 loadReturn 机制开启时出现）
+  const loadCfg = gameConfig.mechanisms.loadReturn;
+  if (
+    loadCfg.enabled &&
+    loadCfg.allowDrop &&
+    (state.phase === 'MINING' || state.phase === 'RETURN') &&
+    state.gemsKg > 0
+  ) {
+    const kg = round2(Math.min(loadCfg.dropStepKg, state.gemsKg));
+    const perTile = desertExtraDaysForLoad(state.gemsKg);
+    actions.push({
+      action: { type: 'DROP_GEMS', dropKg: kg },
+      label: `丢弃 ${kg}kg 宝石减负`,
+      hint: perTile > 0
+        ? `当前负重 ${state.gemsKg}kg：返程每穿越 1 格沙漠要多耗 ${perTile} 天。丢到 ${loadCfg.thresholdKg}kg 以下即可完全恢复正常速度。`
+        : `当前负重 ${state.gemsKg}kg 未超阈值 ${loadCfg.thresholdKg}kg，丢弃只会白白损失收益。`,
+      disabled: false,
+    });
+  }
+
   // 原地停留（仅在尚未提供过 WAIT 的场合补充：野外 OUTBOUND/RETURN）
   if (
     (state.phase === 'OUTBOUND' || state.phase === 'RETURN') &&
@@ -768,18 +842,41 @@ export function performAction(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'MINE': {
       if (s.phase !== 'MINING') throw new GameError('NOT_MINING', '只有在矿区入口才能挖矿');
+      const dayIndex = s.stats.miningDays + 1;
+      const slot = s.map.tiles[s.position]?.mineSlot;
+      const yieldKg = yieldForMiningDay(dayIndex, slot);
+      // 事故掷骰必须在 mutate 之前完成（recordResult 的文案需要它），
+      // 且只依赖 seed + 当前天数 + 第几个采矿日 → 完全确定、可重放。
+      // 机制关闭时 p = 0，恒为 false，行为与落盘前逐位一致。
+      const accident = rollMiningAccident(s.seed, s.daysUsed, dayIndex);
+      const accCfg = gameConfig.mechanisms.accidentRisk;
+      const gained = accident ? round2(yieldKg * (1 - accCfg.yieldLossFraction)) : yieldKg;
+      const cargoLost = accident ? round2(gained * accCfg.cargoLossFraction) : 0;
+      const netGain = round2(gained - cargoLost);
       recordResult(
         s,
-        {
-          title: '挖矿收获',
-          message: `你在矿脉中劳作一整天，敲下 ${gameConfig.gemPerMiningDay}kg 宝石。`,
-          kind: 'good',
-          logText: `在矿脉中劳作一整天，收获 ${gameConfig.gemPerMiningDay}kg 宝石。`,
-        },
+        accident
+          ? {
+              title: '矿区事故',
+              message: `矿道塌方！你只抢出 ${netGain}kg 宝石（本可挖 ${yieldKg}kg），还被碎石堵在矿道里多耗了 ${accCfg.extraDays} 天。`,
+              kind: 'bad',
+              logText: `矿区事故：当日产量 ${yieldKg}kg → ${netGain}kg，额外损失 ${accCfg.extraDays} 天。`,
+            }
+          : {
+              title: '挖矿收获',
+              message: `你在矿脉中劳作一整天，敲下 ${yieldKg}kg 宝石。`,
+              kind: 'good',
+              logText: `在矿脉中劳作一整天，收获 ${yieldKg}kg 宝石。`,
+            },
         () => {
           if (!addDays(s, 1)) return;
           s.stats.miningDays += 1;
-          s.gemsKg += gameConfig.gemPerMiningDay;
+          s.gemsKg = round2(s.gemsKg + netGain);
+          if (accident) {
+            s.stats.miningAccidents += 1;
+            s.stats.miningAccidentLostKg = round2(s.stats.miningAccidentLostKg + (yieldKg - netGain));
+            if (accCfg.extraDays > 0) addDays(s, accCfg.extraDays);
+          }
         },
       );
       finalizeTurn(s);
@@ -907,6 +1004,40 @@ export function performAction(state: GameState, action: GameAction): GameState {
         },
       );
       return s; // 成本已在购买时支付
+    }
+    case 'DROP_GEMS': {
+      // Candidate Family D4：主动丢弃宝石换取返程安全（减负）。
+      // 设计约束：0 个新增状态变量、1 个公式、1 个主动按钮；不消耗时间、不消耗金钱。
+      const loadCfg = gameConfig.mechanisms.loadReturn;
+      if (!loadCfg.enabled || !loadCfg.allowDrop) {
+        throw new GameError('DROP_DISABLED', '当前规则不允许丢弃宝石');
+      }
+      if (s.phase !== 'MINING' && s.phase !== 'RETURN') {
+        throw new GameError('BAD_PHASE', '只有采矿与返程阶段可以丢弃宝石');
+      }
+      if (s.gemsKg <= 0) throw new GameError('NO_CARGO', '没有可丢弃的宝石');
+      const want = action.dropKg ?? loadCfg.dropStepKg;
+      const actual = round2(Math.min(want, s.gemsKg));
+      if (actual <= 0) throw new GameError('BAD_ACTION', '丢弃数量必须为正');
+      const overloadedBefore = isOverloaded(s.gemsKg);
+      recordResult(
+        s,
+        {
+          title: '丢弃宝石',
+          message: `你把 ${actual}kg 宝石留在了沙里，驮队轻快了不少。`,
+          kind: 'info',
+          logText: `主动丢弃 ${actual}kg 宝石减负（剩余 ${round2(s.gemsKg - actual)}kg）。`,
+          force: true,
+        },
+        () => {
+          s.gemsKg = round2(s.gemsKg - actual);
+          s.stats.droppedKg = round2(s.stats.droppedKg + actual);
+        },
+      );
+      if (overloadedBefore && !isOverloaded(s.gemsKg)) {
+        pushLog(s, 'good', `载重已降到阈值（${gameConfig.mechanisms.loadReturn.thresholdKg}kg）以下，穿越沙漠不再额外耗时。`);
+      }
+      return s; // 丢弃不消耗时间
     }
     case 'WAIT': {
       if (s.phase !== 'OUTBOUND' && s.phase !== 'RETURN' && s.phase !== 'MINING') {

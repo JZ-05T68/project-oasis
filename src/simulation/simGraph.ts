@@ -1,4 +1,5 @@
 import type { FairMap, FairView } from './fairView';
+import { desertExtraDaysForLoad } from '../game/rules/mining';
 
 /**
  * Bot 侧图算法工具：全部只依赖 FairView 的公开信息
@@ -137,6 +138,62 @@ export function minReturnDays(view: FairView): number | null {
   const path = bfsPath(view.map, view.position, view.map.cityId, returnForbidden(view), returnViaFilter(view));
   return path ? path.length - 1 : null;
 }
+
+/* ------------------------------------------------------------------ */
+/* 负重感知返程规划（Candidate Family D 的 Bot 侧全部逻辑）                */
+/* ------------------------------------------------------------------ */
+/**
+ * 关键约束：返程必经「全新的格子」＝战争迷雾，地形未知。
+ * 因此 Bot **不能**知道前面哪格是沙漠；它只能用公开先验做期望估计。
+ * 公开先验：普通格地形概率 GRASS .4 / DESERT .3 / VILLAGE .2 / OASIS .1。
+ *
+ * 于是「进入一格」的期望天数：
+ *   已知地形 → 1 + (是沙漠 ? extraDays : 0)
+ *   未知地形 → 1 + 0.30 × extraDays        （按公开的沙漠先验折算）
+ * 这是纯粹的期望值规划，不涉及任何上帝视角。
+ */
+export const DESERT_PRIOR = 0.3;
+
+export function expectedMoveDays(view: FairView, tileId: string): number {
+  const cfg = view.rules.loadReturn;
+  if (!cfg.enabled) return 1;
+  const extra = desertExtraDaysForLoad(view.gemsKg);
+  if (extra <= 0) return 1;
+  const terrain = view.map.tiles[tileId]?.terrain ?? null;
+  if (terrain === 'DESERT') return 1 + extra;
+  if (terrain === null) return 1 + DESERT_PRIOR * extra;
+  return 1;
+}
+
+/** 从源头保证 Bot 与引擎用同一套负重分级公式 */
+export function loadExtraPerDesertTile(gemsKg: number): number {
+  return desertExtraDaysForLoad(gemsKg);
+}
+
+/** 以「期望天数」为权重的返程最短代价（机制关闭时退化为 minReturnDays） */
+export function minReturnCostLoadAware(view: FairView): number | null {
+  if (!view.rules.loadReturn.enabled || view.gemsKg < view.rules.loadReturn.thresholdKg) {
+    return minReturnDays(view);
+  }
+  const r = dijkstraPath(
+    view.map,
+    view.position,
+    view.map.cityId,
+    (id) => expectedMoveDays(view, id),
+    returnForbidden(view),
+    returnViaFilter(view),
+  );
+  return r ? r.cost : null;
+}
+
+/** 「丢到阈值以下」之后回到基础规则的最短返程天数（用于评估丢货能省几天） */
+export function minReturnDaysIfDropped(view: FairView): number | null {
+  return minReturnDays(view);
+}
+
+/* ------------------------------------------------------------------ */
+/* 地图地形构成（用于判断一条走廊的沙漠比例）                              */
+/* ------------------------------------------------------------------ */
 
 /** 安全权重表：草地并非安全地形 */
 export const SAFE_WEIGHTS: Record<string, number> = {

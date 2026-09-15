@@ -8,6 +8,7 @@ import {
   pickFrom,
   type BaseBotConfig,
 } from './utils';
+import { MECHANISM_BOT_NAMES, mechanismBot } from './mechanismBots';
 
 /**
  * v0.1.2 策略 Bot（格子地图版，供 Smoke Simulation 使用）。
@@ -392,6 +393,9 @@ export const ALL_BOTS: BotStrategy[] = [
   villageWorkerBot,
 ];
 
-export const BOT_BY_NAME: Record<string, BotStrategy> = Object.fromEntries(
-  ALL_BOTS.map((b) => [b.name, b]),
-);
+export const BOT_BY_NAME: Record<string, BotStrategy> = {
+  ...Object.fromEntries(ALL_BOTS.map((b) => [b.name, b])),
+  // 机制专项 Bot（Autonomous Mechanism Evolution Lab）：
+  // 不放进 ALL_BOTS，避免污染既有报告与"全部策略"清单。
+  ...Object.fromEntries(MECHANISM_BOT_NAMES.map((n) => [n, mechanismBot(n)!])),
+};
