@@ -1,0 +1,1123 @@
+[
+  {
+    "price": 500,
+    "feas3": true,
+    "feas4": false,
+    "score": {
+      "total": 72.79,
+      "parts": {
+        "choiceDiversity": 28.28,
+        "antiWasteful": 16.51,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "WastefulBot 胜率 80.38% ≥ Reasonable 77.13%：过度囤积反而更稳",
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 77.13,
+        "ev": 2526.69,
+        "avgTents": 3.06,
+        "avgCompasses": 2.07,
+        "equipmentWasteRate": 23.6,
+        "avgEquipmentSpent": 1672.55,
+        "staminaDeath": 11.13,
+        "timeout": 0.63,
+        "restRate": 42.63
+      },
+      "ReasonableMechBot": {
+        "winRate": 88.38,
+        "ev": 2668.42,
+        "avgTents": 3.03,
+        "avgCompasses": 2.06,
+        "equipmentWasteRate": 23.45,
+        "avgEquipmentSpent": 1661.7,
+        "staminaDeath": 11.5,
+        "timeout": 0,
+        "restRate": 42
+      },
+      "PreparedBot": {
+        "winRate": 76.88,
+        "ev": 2530.32,
+        "avgTents": 3.13,
+        "avgCompasses": 2,
+        "equipmentWasteRate": 22.98,
+        "avgEquipmentSpent": 1737.5,
+        "staminaDeath": 10,
+        "timeout": 1,
+        "restRate": 40.88
+      },
+      "WastefulBot": {
+        "winRate": 80.38,
+        "ev": 2159.87,
+        "avgTents": 4,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 35.27,
+        "avgEquipmentSpent": 2000,
+        "staminaDeath": 5,
+        "timeout": 0.88,
+        "restRate": 44.63
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 89.5,
+        "ev": 2101.99,
+        "avgTents": 3.05,
+        "avgCompasses": 3.39,
+        "equipmentWasteRate": 27.96,
+        "avgEquipmentSpent": 1849.75,
+        "staminaDeath": 10.25,
+        "timeout": 0,
+        "restRate": 41
+      },
+      "SafeBot": {
+        "winRate": 84.5,
+        "ev": 2019.94,
+        "avgTents": 2.99,
+        "avgCompasses": 1.99,
+        "equipmentWasteRate": 21.83,
+        "avgEquipmentSpent": 1632.08,
+        "staminaDeath": 11.38,
+        "timeout": 0.13,
+        "restRate": 41.38
+      },
+      "ShortestPathBot": {
+        "winRate": 45.75,
+        "ev": 1687.29,
+        "avgTents": 2.21,
+        "avgCompasses": 1.96,
+        "equipmentWasteRate": 21.62,
+        "avgEquipmentSpent": 1201.97,
+        "staminaDeath": 25.12,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3.25,
+        "ev": -860.65,
+        "avgTents": 1.94,
+        "avgCompasses": 1.71,
+        "equipmentWasteRate": 27.23,
+        "avgEquipmentSpent": 1065.03,
+        "staminaDeath": 11.38,
+        "timeout": 0.13,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 78.13,
+        "ev": 2519.32,
+        "avgTents": 2.9,
+        "avgCompasses": 2.03,
+        "equipmentWasteRate": 22.4,
+        "avgEquipmentSpent": 1610.08,
+        "staminaDeath": 10.88,
+        "timeout": 0.25,
+        "restRate": 38.88
+      }
+    },
+    "tentDistribution": {
+      "3.1": 2,
+      "3.0": 3,
+      "4.0": 1,
+      "0.0": 1,
+      "2.2": 1,
+      "1.9": 1,
+      "2.9": 1
+    }
+  },
+  {
+    "price": 525,
+    "feas3": true,
+    "feas4": true,
+    "score": {
+      "total": 54.95,
+      "parts": {
+        "choiceDiversity": 26.95,
+        "antiWasteful": 0,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "WastefulBot EV (2603.61) ≥ Reasonable (2427.83)：乱囤装备没有代价",
+        "WastefulBot 胜率 79.75% ≥ Reasonable 76%：过度囤积反而更稳",
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 76,
+        "ev": 2427.83,
+        "avgTents": 3,
+        "avgCompasses": 2.03,
+        "equipmentWasteRate": 22.74,
+        "avgEquipmentSpent": 1712.34,
+        "staminaDeath": 12.38,
+        "timeout": 0.63,
+        "restRate": 42.25
+      },
+      "ReasonableMechBot": {
+        "winRate": 87.88,
+        "ev": 2592.07,
+        "avgTents": 2.99,
+        "avgCompasses": 2.01,
+        "equipmentWasteRate": 22.88,
+        "avgEquipmentSpent": 1709.62,
+        "staminaDeath": 12,
+        "timeout": 0,
+        "restRate": 41.5
+      },
+      "PreparedBot": {
+        "winRate": 74.13,
+        "ev": 2248.22,
+        "avgTents": 3.12,
+        "avgCompasses": 1,
+        "equipmentWasteRate": 21.98,
+        "avgEquipmentSpent": 1711.75,
+        "staminaDeath": 9.88,
+        "timeout": 1.13,
+        "restRate": 40.88
+      },
+      "WastefulBot": {
+        "winRate": 79.75,
+        "ev": 2603.61,
+        "avgTents": 3,
+        "avgCompasses": 3.77,
+        "equipmentWasteRate": 28.64,
+        "avgEquipmentSpent": 1950.05,
+        "staminaDeath": 12.5,
+        "timeout": 0.13,
+        "restRate": 40.13
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 88.5,
+        "ev": 2012.82,
+        "avgTents": 3,
+        "avgCompasses": 3.25,
+        "equipmentWasteRate": 27.01,
+        "avgEquipmentSpent": 1896.65,
+        "staminaDeath": 11.25,
+        "timeout": 0,
+        "restRate": 39.75
+      },
+      "SafeBot": {
+        "winRate": 83.38,
+        "ev": 1956.63,
+        "avgTents": 2.92,
+        "avgCompasses": 1.81,
+        "equipmentWasteRate": 20.42,
+        "avgEquipmentSpent": 1654.71,
+        "staminaDeath": 12.5,
+        "timeout": 0.13,
+        "restRate": 40.63
+      },
+      "ShortestPathBot": {
+        "winRate": 45.25,
+        "ev": 1623.16,
+        "avgTents": 2.19,
+        "avgCompasses": 1.96,
+        "equipmentWasteRate": 21.61,
+        "avgEquipmentSpent": 1237.3,
+        "staminaDeath": 25.75,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3.25,
+        "ev": -896.02,
+        "avgTents": 1.94,
+        "avgCompasses": 1.71,
+        "equipmentWasteRate": 27.21,
+        "avgEquipmentSpent": 1100.93,
+        "staminaDeath": 11.63,
+        "timeout": 0.13,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 75.38,
+        "ev": 2333.93,
+        "avgTents": 2.86,
+        "avgCompasses": 2,
+        "equipmentWasteRate": 21.78,
+        "avgEquipmentSpent": 1652.84,
+        "staminaDeath": 12.63,
+        "timeout": 0.38,
+        "restRate": 38.38
+      }
+    },
+    "tentDistribution": {
+      "3.0": 4,
+      "3.1": 1,
+      "0.0": 1,
+      "2.9": 2,
+      "2.2": 1,
+      "1.9": 1
+    }
+  },
+  {
+    "price": 550,
+    "feas3": true,
+    "feas4": true,
+    "score": {
+      "total": 57.09,
+      "parts": {
+        "choiceDiversity": 29.09,
+        "antiWasteful": 0,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "WastefulBot EV (2472.8) ≥ Reasonable (2358.89)：乱囤装备没有代价",
+        "WastefulBot 胜率 77.75% ≥ Reasonable 75.13%：过度囤积反而更稳",
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 75.13,
+        "ev": 2358.89,
+        "avgTents": 2.91,
+        "avgCompasses": 2.06,
+        "equipmentWasteRate": 21.76,
+        "avgEquipmentSpent": 1739.31,
+        "staminaDeath": 13.5,
+        "timeout": 0.5,
+        "restRate": 41.63
+      },
+      "ReasonableMechBot": {
+        "winRate": 86.5,
+        "ev": 2493.53,
+        "avgTents": 2.9,
+        "avgCompasses": 2.04,
+        "equipmentWasteRate": 22.09,
+        "avgEquipmentSpent": 1739.8,
+        "staminaDeath": 13.38,
+        "timeout": 0,
+        "restRate": 40.63
+      },
+      "PreparedBot": {
+        "winRate": 74.75,
+        "ev": 2051.5,
+        "avgTents": 3.12,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 23,
+        "avgEquipmentSpent": 1686.38,
+        "staminaDeath": 11.25,
+        "timeout": 0.88,
+        "restRate": 42.25
+      },
+      "WastefulBot": {
+        "winRate": 77.75,
+        "ev": 2472.8,
+        "avgTents": 3,
+        "avgCompasses": 3,
+        "equipmentWasteRate": 25.22,
+        "avgEquipmentSpent": 1950,
+        "staminaDeath": 12.75,
+        "timeout": 0.63,
+        "restRate": 39.88
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 88.25,
+        "ev": 1974.58,
+        "avgTents": 3,
+        "avgCompasses": 2.78,
+        "equipmentWasteRate": 24.84,
+        "avgEquipmentSpent": 1925.58,
+        "staminaDeath": 11.5,
+        "timeout": 0,
+        "restRate": 39.63
+      },
+      "SafeBot": {
+        "winRate": 81.75,
+        "ev": 1909.56,
+        "avgTents": 2.77,
+        "avgCompasses": 1.58,
+        "equipmentWasteRate": 18.76,
+        "avgEquipmentSpent": 1618.13,
+        "staminaDeath": 14,
+        "timeout": 0.13,
+        "restRate": 38.75
+      },
+      "ShortestPathBot": {
+        "winRate": 45,
+        "ev": 1571.94,
+        "avgTents": 2.18,
+        "avgCompasses": 1.96,
+        "equipmentWasteRate": 21.63,
+        "avgEquipmentSpent": 1272.7,
+        "staminaDeath": 26,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3.25,
+        "ev": -931.44,
+        "avgTents": 1.93,
+        "avgCompasses": 1.71,
+        "equipmentWasteRate": 27.12,
+        "avgEquipmentSpent": 1137,
+        "staminaDeath": 11.63,
+        "timeout": 0.13,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 74.38,
+        "ev": 2261.76,
+        "avgTents": 2.77,
+        "avgCompasses": 2.05,
+        "equipmentWasteRate": 21.12,
+        "avgEquipmentSpent": 1677.95,
+        "staminaDeath": 14.63,
+        "timeout": 0.38,
+        "restRate": 37.13
+      }
+    },
+    "tentDistribution": {
+      "2.9": 2,
+      "3.1": 1,
+      "3.0": 2,
+      "0.0": 1,
+      "2.8": 2,
+      "2.2": 1,
+      "1.9": 1
+    }
+  },
+  {
+    "price": 575,
+    "feas3": true,
+    "feas4": true,
+    "score": {
+      "total": 58.69,
+      "parts": {
+        "choiceDiversity": 29.09,
+        "antiWasteful": 1.6,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "WastefulBot 胜率 74.38% ≥ Reasonable 74.13%：过度囤积反而更稳",
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 74.13,
+        "ev": 2274.29,
+        "avgTents": 2.89,
+        "avgCompasses": 1.87,
+        "equipmentWasteRate": 20.82,
+        "avgEquipmentSpent": 1777.14,
+        "staminaDeath": 13.88,
+        "timeout": 0.63,
+        "restRate": 41.13
+      },
+      "ReasonableMechBot": {
+        "winRate": 86.25,
+        "ev": 2441.56,
+        "avgTents": 2.89,
+        "avgCompasses": 1.86,
+        "equipmentWasteRate": 21.36,
+        "avgEquipmentSpent": 1780.24,
+        "staminaDeath": 13.5,
+        "timeout": 0,
+        "restRate": 40.13
+      },
+      "PreparedBot": {
+        "winRate": 71.25,
+        "ev": 2370.34,
+        "avgTents": 2.54,
+        "avgCompasses": 2.88,
+        "equipmentWasteRate": 22.89,
+        "avgEquipmentSpent": 1604.33,
+        "staminaDeath": 19.63,
+        "timeout": 0.88,
+        "restRate": 36.88
+      },
+      "WastefulBot": {
+        "winRate": 74.38,
+        "ev": 2238.64,
+        "avgTents": 3,
+        "avgCompasses": 2,
+        "equipmentWasteRate": 21.92,
+        "avgEquipmentSpent": 1925,
+        "staminaDeath": 12.75,
+        "timeout": 1,
+        "restRate": 39.38
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 87.25,
+        "ev": 1911.26,
+        "avgTents": 3,
+        "avgCompasses": 2,
+        "equipmentWasteRate": 22.4,
+        "avgEquipmentSpent": 1925,
+        "staminaDeath": 12.5,
+        "timeout": 0,
+        "restRate": 39.63
+      },
+      "SafeBot": {
+        "winRate": 75.25,
+        "ev": 1724.98,
+        "avgTents": 2.5,
+        "avgCompasses": 2.02,
+        "equipmentWasteRate": 19.32,
+        "avgEquipmentSpent": 1505.6,
+        "staminaDeath": 21,
+        "timeout": 0.13,
+        "restRate": 37.13
+      },
+      "ShortestPathBot": {
+        "winRate": 44.63,
+        "ev": 1515.45,
+        "avgTents": 2.17,
+        "avgCompasses": 1.94,
+        "equipmentWasteRate": 21.3,
+        "avgEquipmentSpent": 1303.53,
+        "staminaDeath": 26.63,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3.25,
+        "ev": -964.44,
+        "avgTents": 1.92,
+        "avgCompasses": 1.7,
+        "equipmentWasteRate": 26.89,
+        "avgEquipmentSpent": 1170.72,
+        "staminaDeath": 11.63,
+        "timeout": 0.13,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 73.38,
+        "ev": 2165.7,
+        "avgTents": 2.75,
+        "avgCompasses": 1.88,
+        "equipmentWasteRate": 20.24,
+        "avgEquipmentSpent": 1715.68,
+        "staminaDeath": 15.25,
+        "timeout": 0.63,
+        "restRate": 37
+      }
+    },
+    "tentDistribution": {
+      "2.9": 2,
+      "2.5": 2,
+      "3.0": 2,
+      "0.0": 1,
+      "2.2": 1,
+      "1.9": 1,
+      "2.8": 1
+    }
+  },
+  {
+    "price": 600,
+    "feas3": true,
+    "feas4": true,
+    "score": {
+      "total": 57.22,
+      "parts": {
+        "choiceDiversity": 29.22,
+        "antiWasteful": 0,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "WastefulBot EV (2245.57) ≥ Reasonable (2225)：乱囤装备没有代价",
+        "WastefulBot 胜率 74.38% ≥ Reasonable 74.25%：过度囤积反而更稳",
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 74.25,
+        "ev": 2225,
+        "avgTents": 2.88,
+        "avgCompasses": 1.85,
+        "equipmentWasteRate": 20.72,
+        "avgEquipmentSpent": 1837.45,
+        "staminaDeath": 13.38,
+        "timeout": 0.63,
+        "restRate": 40.88
+      },
+      "ReasonableMechBot": {
+        "winRate": 86.38,
+        "ev": 2394.83,
+        "avgTents": 2.88,
+        "avgCompasses": 1.84,
+        "equipmentWasteRate": 21.12,
+        "avgEquipmentSpent": 1840.4,
+        "staminaDeath": 13.38,
+        "timeout": 0,
+        "restRate": 39.88
+      },
+      "PreparedBot": {
+        "winRate": 68.88,
+        "ev": 2229.86,
+        "avgTents": 2.33,
+        "avgCompasses": 3.14,
+        "equipmentWasteRate": 21.88,
+        "avgEquipmentSpent": 1608.73,
+        "staminaDeath": 22.63,
+        "timeout": 0.75,
+        "restRate": 35.75
+      },
+      "WastefulBot": {
+        "winRate": 74.38,
+        "ev": 2245.57,
+        "avgTents": 3,
+        "avgCompasses": 2,
+        "equipmentWasteRate": 22.2,
+        "avgEquipmentSpent": 2000,
+        "staminaDeath": 12.75,
+        "timeout": 1,
+        "restRate": 38.75
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 88,
+        "ev": 1936.83,
+        "avgTents": 3,
+        "avgCompasses": 2,
+        "equipmentWasteRate": 23.35,
+        "avgEquipmentSpent": 2000,
+        "staminaDeath": 11.75,
+        "timeout": 0,
+        "restRate": 39.25
+      },
+      "SafeBot": {
+        "winRate": 74.88,
+        "ev": 1672.29,
+        "avgTents": 2.48,
+        "avgCompasses": 2.02,
+        "equipmentWasteRate": 19.02,
+        "avgEquipmentSpent": 1547.45,
+        "staminaDeath": 21.38,
+        "timeout": 0.13,
+        "restRate": 36.88
+      },
+      "ShortestPathBot": {
+        "winRate": 44.5,
+        "ev": 1471.81,
+        "avgTents": 2.16,
+        "avgCompasses": 1.95,
+        "equipmentWasteRate": 21.16,
+        "avgEquipmentSpent": 1342.45,
+        "staminaDeath": 26.75,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3.25,
+        "ev": -1000.85,
+        "avgTents": 1.92,
+        "avgCompasses": 1.7,
+        "equipmentWasteRate": 26.84,
+        "avgEquipmentSpent": 1207.85,
+        "staminaDeath": 11.63,
+        "timeout": 0.13,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 73.5,
+        "ev": 2127.55,
+        "avgTents": 2.74,
+        "avgCompasses": 1.86,
+        "equipmentWasteRate": 20.1,
+        "avgEquipmentSpent": 1773.93,
+        "staminaDeath": 15,
+        "timeout": 0.63,
+        "restRate": 37
+      }
+    },
+    "tentDistribution": {
+      "2.9": 2,
+      "2.3": 1,
+      "3.0": 2,
+      "0.0": 1,
+      "2.5": 1,
+      "2.2": 1,
+      "1.9": 1,
+      "2.7": 1
+    }
+  },
+  {
+    "price": 625,
+    "feas3": true,
+    "feas4": true,
+    "score": {
+      "total": 68.21,
+      "parts": {
+        "choiceDiversity": 29.22,
+        "antiWasteful": 10.99,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 72.63,
+        "ev": 2151.59,
+        "avgTents": 2.78,
+        "avgCompasses": 1.55,
+        "equipmentWasteRate": 19.06,
+        "avgEquipmentSpent": 1802.59,
+        "staminaDeath": 13.63,
+        "timeout": 0.63,
+        "restRate": 39.63
+      },
+      "ReasonableMechBot": {
+        "winRate": 84.13,
+        "ev": 2295.63,
+        "avgTents": 2.78,
+        "avgCompasses": 1.55,
+        "equipmentWasteRate": 19.03,
+        "avgEquipmentSpent": 1805.88,
+        "staminaDeath": 15.38,
+        "timeout": 0,
+        "restRate": 39
+      },
+      "PreparedBot": {
+        "winRate": 68.25,
+        "ev": 2166.86,
+        "avgTents": 2.3,
+        "avgCompasses": 3.04,
+        "equipmentWasteRate": 20.88,
+        "avgEquipmentSpent": 1641.98,
+        "staminaDeath": 23.25,
+        "timeout": 0.63,
+        "restRate": 35.25
+      },
+      "WastefulBot": {
+        "winRate": 72.13,
+        "ev": 1924.02,
+        "avgTents": 3,
+        "avgCompasses": 1,
+        "equipmentWasteRate": 20.96,
+        "avgEquipmentSpent": 1975,
+        "staminaDeath": 12.38,
+        "timeout": 1.13,
+        "restRate": 39.38
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 85.75,
+        "ev": 1667.36,
+        "avgTents": 3,
+        "avgCompasses": 1,
+        "equipmentWasteRate": 21.38,
+        "avgEquipmentSpent": 1975,
+        "staminaDeath": 14,
+        "timeout": 0.25,
+        "restRate": 39.88
+      },
+      "SafeBot": {
+        "winRate": 74.63,
+        "ev": 1629.76,
+        "avgTents": 2.46,
+        "avgCompasses": 1.93,
+        "equipmentWasteRate": 18.26,
+        "avgEquipmentSpent": 1583.2,
+        "staminaDeath": 21.63,
+        "timeout": 0.13,
+        "restRate": 36.75
+      },
+      "ShortestPathBot": {
+        "winRate": 43.63,
+        "ev": 1404.77,
+        "avgTents": 2.1,
+        "avgCompasses": 1.93,
+        "equipmentWasteRate": 20.44,
+        "avgEquipmentSpent": 1351.46,
+        "staminaDeath": 28.13,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3.13,
+        "ev": -1028.68,
+        "avgTents": 1.89,
+        "avgCompasses": 1.69,
+        "equipmentWasteRate": 26.45,
+        "avgEquipmentSpent": 1226.63,
+        "staminaDeath": 12.25,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 70.5,
+        "ev": 1974.81,
+        "avgTents": 2.63,
+        "avgCompasses": 1.57,
+        "equipmentWasteRate": 17.64,
+        "avgEquipmentSpent": 1742.34,
+        "staminaDeath": 16.63,
+        "timeout": 0.38,
+        "restRate": 36.25
+      }
+    },
+    "tentDistribution": {
+      "2.8": 2,
+      "2.3": 1,
+      "3.0": 2,
+      "0.0": 1,
+      "2.5": 1,
+      "2.1": 1,
+      "1.9": 1,
+      "2.6": 1
+    }
+  },
+  {
+    "price": 650,
+    "feas3": true,
+    "feas4": true,
+    "score": {
+      "total": 73.6,
+      "parts": {
+        "choiceDiversity": 29.09,
+        "antiWasteful": 16.51,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "WastefulBot 胜率 73.13% ≥ Reasonable 69.25%：过度囤积反而更稳",
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 69.25,
+        "ev": 2112.94,
+        "avgTents": 2.46,
+        "avgCompasses": 2.08,
+        "equipmentWasteRate": 18.37,
+        "avgEquipmentSpent": 1647.88,
+        "staminaDeath": 20.25,
+        "timeout": 0.5,
+        "restRate": 36.75
+      },
+      "ReasonableMechBot": {
+        "winRate": 79.13,
+        "ev": 2222.01,
+        "avgTents": 2.43,
+        "avgCompasses": 2.06,
+        "equipmentWasteRate": 18.53,
+        "avgEquipmentSpent": 1637.45,
+        "staminaDeath": 20.75,
+        "timeout": 0,
+        "restRate": 36
+      },
+      "PreparedBot": {
+        "winRate": 68.25,
+        "ev": 2119.35,
+        "avgTents": 2.3,
+        "avgCompasses": 3.03,
+        "equipmentWasteRate": 20.87,
+        "avgEquipmentSpent": 1691.68,
+        "staminaDeath": 23.25,
+        "timeout": 0.63,
+        "restRate": 35.25
+      },
+      "WastefulBot": {
+        "winRate": 73.13,
+        "ev": 1746.09,
+        "avgTents": 3,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 21.76,
+        "avgEquipmentSpent": 1950,
+        "staminaDeath": 13.13,
+        "timeout": 0.88,
+        "restRate": 40.75
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 86,
+        "ev": 1416.11,
+        "avgTents": 3,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 22.19,
+        "avgEquipmentSpent": 1950,
+        "staminaDeath": 13.38,
+        "timeout": 0,
+        "restRate": 41.5
+      },
+      "SafeBot": {
+        "winRate": 74.25,
+        "ev": 1582.78,
+        "avgTents": 2.4,
+        "avgCompasses": 1.93,
+        "equipmentWasteRate": 17.31,
+        "avgEquipmentSpent": 1613.58,
+        "staminaDeath": 22,
+        "timeout": 0.13,
+        "restRate": 36.5
+      },
+      "ShortestPathBot": {
+        "winRate": 42.63,
+        "ev": 1324.49,
+        "avgTents": 2.06,
+        "avgCompasses": 1.97,
+        "equipmentWasteRate": 20.34,
+        "avgEquipmentSpent": 1360.43,
+        "staminaDeath": 29.38,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3,
+        "ev": -1054.61,
+        "avgTents": 1.86,
+        "avgCompasses": 1.7,
+        "equipmentWasteRate": 26.36,
+        "avgEquipmentSpent": 1241.8,
+        "staminaDeath": 12.88,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 71.25,
+        "ev": 2091.25,
+        "avgTents": 2.3,
+        "avgCompasses": 2.01,
+        "equipmentWasteRate": 16.72,
+        "avgEquipmentSpent": 1592.63,
+        "staminaDeath": 19.88,
+        "timeout": 0.25,
+        "restRate": 34.13
+      }
+    },
+    "tentDistribution": {
+      "2.5": 1,
+      "2.4": 2,
+      "2.3": 2,
+      "3.0": 2,
+      "0.0": 1,
+      "2.1": 1,
+      "1.9": 1
+    }
+  },
+  {
+    "price": 700,
+    "feas3": false,
+    "feas4": true,
+    "score": {
+      "total": 58.51,
+      "parts": {
+        "choiceDiversity": 27.52,
+        "antiWasteful": 2.99,
+        "survivalTradeoff": 13,
+        "economyHealth": 15
+      },
+      "penalties": {},
+      "notes": [
+        "CheapBot EV 未高于 PreparedBot：轻装没有收益补偿"
+      ]
+    },
+    "perBot": {
+      "ReasonablePlayerBot": {
+        "winRate": 69.13,
+        "ev": 2022.53,
+        "avgTents": 2.44,
+        "avgCompasses": 2.05,
+        "equipmentWasteRate": 18,
+        "avgEquipmentSpent": 1738.93,
+        "staminaDeath": 20.5,
+        "timeout": 0.5,
+        "restRate": 36.5
+      },
+      "ReasonableMechBot": {
+        "winRate": 78.5,
+        "ev": 2105.77,
+        "avgTents": 2.41,
+        "avgCompasses": 2.04,
+        "equipmentWasteRate": 18.21,
+        "avgEquipmentSpent": 1728.43,
+        "staminaDeath": 21.38,
+        "timeout": 0,
+        "restRate": 35.88
+      },
+      "PreparedBot": {
+        "winRate": 68,
+        "ev": 2034.49,
+        "avgTents": 2.3,
+        "avgCompasses": 2.68,
+        "equipmentWasteRate": 18.71,
+        "avgEquipmentSpent": 1756.93,
+        "staminaDeath": 22.88,
+        "timeout": 0.63,
+        "restRate": 35.13
+      },
+      "WastefulBot": {
+        "winRate": 68.38,
+        "ev": 1981.17,
+        "avgTents": 2.14,
+        "avgCompasses": 4.23,
+        "equipmentWasteRate": 26.92,
+        "avgEquipmentSpent": 1861.58,
+        "staminaDeath": 26.13,
+        "timeout": 0.13,
+        "restRate": 33.63
+      },
+      "CheapBot": {
+        "winRate": 9,
+        "ev": 441.09,
+        "avgTents": 0,
+        "avgCompasses": 0,
+        "equipmentWasteRate": 0,
+        "avgEquipmentSpent": 0,
+        "staminaDeath": 88.88,
+        "timeout": 0,
+        "restRate": 0
+      },
+      "CautiousPlayerBot": {
+        "winRate": 78,
+        "ev": 1604.72,
+        "avgTents": 2.42,
+        "avgCompasses": 3.13,
+        "equipmentWasteRate": 22.78,
+        "avgEquipmentSpent": 1839.85,
+        "staminaDeath": 21.75,
+        "timeout": 0,
+        "restRate": 37.63
+      },
+      "SafeBot": {
+        "winRate": 71.88,
+        "ev": 1440.07,
+        "avgTents": 2.29,
+        "avgCompasses": 1.91,
+        "equipmentWasteRate": 16.15,
+        "avgEquipmentSpent": 1674.03,
+        "staminaDeath": 24.25,
+        "timeout": 0.13,
+        "restRate": 35.75
+      },
+      "ShortestPathBot": {
+        "winRate": 42.5,
+        "ev": 1247.6,
+        "avgTents": 2.05,
+        "avgCompasses": 1.96,
+        "equipmentWasteRate": 20.02,
+        "avgEquipmentSpent": 1430.85,
+        "staminaDeath": 29.63,
+        "timeout": 0.25,
+        "restRate": 0
+      },
+      "GreedyMinerBot": {
+        "winRate": 3,
+        "ev": -1123.86,
+        "avgTents": 1.85,
+        "avgCompasses": 1.71,
+        "equipmentWasteRate": 26.26,
+        "avgEquipmentSpent": 1311.65,
+        "staminaDeath": 12.88,
+        "timeout": 0.13,
+        "restRate": 0
+      },
+      "AdaptiveForecastBot": {
+        "winRate": 69.63,
+        "ev": 1959.73,
+        "avgTents": 2.27,
+        "avgCompasses": 2.05,
+        "equipmentWasteRate": 16.58,
+        "avgEquipmentSpent": 1687.33,
+        "staminaDeath": 21.75,
+        "timeout": 0.25,
+        "restRate": 33.25
+      }
+    },
+    "tentDistribution": {
+      "2.4": 3,
+      "2.3": 3,
+      "2.1": 1,
+      "0.0": 1,
+      "2.0": 1,
+      "1.9": 1
+    }
+  }
+]
