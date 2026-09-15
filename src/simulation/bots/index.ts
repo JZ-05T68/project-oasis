@@ -10,6 +10,7 @@ import {
 } from './utils';
 import { MECHANISM_BOT_NAMES, mechanismBot } from './mechanismBots';
 import { OUTCOME_BOT_NAMES, outcomeBot } from './outcomeBots';
+import { ECON_BOT_NAMES, econBot } from './econBots';
 
 /**
  * v0.1.2 策略 Bot（格子地图版，供 Smoke Simulation 使用）。
@@ -401,4 +402,6 @@ export const BOT_BY_NAME: Record<string, BotStrategy> = {
   ...Object.fromEntries(MECHANISM_BOT_NAMES.map((n) => [n, mechanismBot(n)!])),
   // v0.2.0 Outcome & Mechanism Expansion Lab 专项 Bot（同样不进 ALL_BOTS）
   ...Object.fromEntries(OUTCOME_BOT_NAMES.map((n) => [n, outcomeBot(n)!])),
+  // v0.3.0 Economic Independence Lab 专项 Bot（同样不进 ALL_BOTS）
+  ...Object.fromEntries(ECON_BOT_NAMES.map((n) => [n, econBot(n)!])),
 };

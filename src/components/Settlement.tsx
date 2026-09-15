@@ -59,6 +59,112 @@ export default function Settlement({ game, onRestart }: Props) {
                 <td className="k">本局 Seed</td>
                 <td className="v">{v.seed}</td>
               </tr>
+              {/* v0.3.0 §48：经济瀑布 —— 每一笔钱都能对账 */}
+              <tr className="sub">
+                <td className="k">初始资金</td>
+                <td className="v">{v.initialCash} 元</td>
+              </tr>
+              <tr>
+                <td className="k">装备支出</td>
+                <td className="v">-{v.equipmentSpent} 元</td>
+              </tr>
+              {v.forecastSpent > 0 && (
+                <tr data-testid="settle-forecast">
+                  <td className="k">天气预报</td>
+                  <td className="v">-{v.forecastSpent} 元</td>
+                </tr>
+              )}
+              {v.villageSpend > 0 && (
+                <tr data-testid="settle-village">
+                  <td className="k">村庄服务（{v.villageServicesUsed} 次）</td>
+                  <td className="v">-{v.villageSpend} 元</td>
+                </tr>
+              )}
+              {v.rescueImmediateSpend > 0 && (
+                <tr data-testid="settle-rescue">
+                  <td className="k">紧急求援（{v.emergencyRescues} 次，当场支付）</td>
+                  <td className="v">-{v.rescueImmediateSpend} 元</td>
+                </tr>
+              )}
+              {v.otherCashDelta !== 0 && (
+                <tr data-testid="settle-other-cash">
+                  <td className="k">途中事件（市集打工 / 盗贼 / 商队等）</td>
+                  <td className="v">
+                    {v.otherCashDelta > 0 ? '+' : ''}
+                    {v.otherCashDelta} 元
+                  </td>
+                </tr>
+              )}
+              <tr className="sub">
+                <td className="k">返城时手中现金</td>
+                <td className="v">{v.cashRemaining} 元</td>
+              </tr>
+              <tr>
+                <td className="k">宝石销售额</td>
+                <td className="v">
+                  +{v.grossGemRevenue} 元{!win && '（失败，无法出售）'}
+                </td>
+              </tr>
+              {v.lateSaleLoss > 0 && (
+                <tr data-testid="settle-latesale">
+                  <td className="k">逾期折价（错过城门集市）</td>
+                  <td className="v">-{v.lateSaleLoss} 元</td>
+                </tr>
+              )}
+              {v.rescueSettlement > 0 && (
+                <tr data-testid="settle-rescue-settlement">
+                  <td className="k">
+                    紧急求援结算（延期支付
+                    {v.rescueDeferredDebt > 0 ? `：债务 ${v.rescueDeferredDebt}` : ''}
+                    {v.rescueRevenueShare > 0 ? `${v.rescueDeferredDebt > 0 ? ' + ' : '：'}收入抽成 ${v.rescueRevenueShare}` : ''}
+                    ）
+                  </td>
+                  <td className="v">-{v.rescueSettlement} 元</td>
+                </tr>
+              )}
+              {v.operatingCost > 0 && (
+                <tr data-testid="settle-upkeep">
+                  <td className="k">远征运营成本</td>
+                  <td className="v">-{v.operatingCost} 元</td>
+                </tr>
+              )}
+              {v.transportCost > 0 && (
+                <tr data-testid="settle-transport">
+                  <td className="k">宝石运输费</td>
+                  <td className="v">-{v.transportCost} 元</td>
+                </tr>
+              )}
+              {v.commissionCost > 0 && (
+                <tr data-testid="settle-commission">
+                  <td className="k">宝石行佣金</td>
+                  <td className="v">-{v.commissionCost} 元</td>
+                </tr>
+              )}
+              {v.appraisalFee > 0 && (
+                <tr data-testid="settle-appraisal">
+                  <td className="k">鉴定费</td>
+                  <td className="v">-{v.appraisalFee} 元</td>
+                </tr>
+              )}
+              {v.settlementExpenses > 0 && (
+                <tr className="sub">
+                  <td className="k">结算期费用合计</td>
+                  <td className="v">-{v.settlementExpenses} 元</td>
+                </tr>
+              )}
+              {/* v0.2.0 机制痕迹（不在瀑布里重复计钱的部分） */}
+              {v.emergencyRescues > 0 && v.rescueImmediateSpend === 0 && v.rescueSettlement === 0 && (
+                <tr data-testid="settle-rescue">
+                  <td className="k">紧急求援</td>
+                  <td className="v">{v.emergencyRescues} 次</td>
+                </tr>
+              )}
+              {v.surgeMiningUses > 0 && (
+                <tr data-testid="settle-surge">
+                  <td className="k">深层采矿</td>
+                  <td className="v">额外 +{v.surgeMiningExtraKg} kg</td>
+                </tr>
+              )}
               <tr>
                 <td className="k">总用时 / 天数上限</td>
                 <td className="v">

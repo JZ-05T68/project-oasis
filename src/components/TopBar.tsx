@@ -9,6 +9,14 @@ const PHASE_NAMES: Record<GameState['phase'], string> = {
 };
 
 export default function TopBar({ game, onOpenRules }: { game: GameState; onOpenRules?: () => void }) {
+  /** v0.3.0：运营成本必须让玩家**随时看得见**，否则它只是一条藏在结算里的税（§14/§50） */
+  const accruedUpkeep = (() => {
+    const u = gameConfig.mechanisms.upkeep;
+    if (!u.enabled) return 0;
+    if (u.mode === 'perDay') return Math.round(game.daysUsed * u.costPerDay);
+    if (u.mode === 'miningDay') return Math.round(game.stats.miningDays * u.costPerDay);
+    return Math.round(Math.max(0, game.daysUsed - u.freeDays) * u.overtimeCostPerDay);
+  })();
   return (
     <div className="topbar">
       <div className="stat">
@@ -53,11 +61,39 @@ export default function TopBar({ game, onOpenRules }: { game: GameState; onOpenR
         </div>
       )}
       {gameConfig.mechanisms.emergencyRescue.enabled && (
-        <div className="stat" title={`求援 ${gameConfig.mechanisms.emergencyRescue.cost} 元，每局最多 ${gameConfig.mechanisms.emergencyRescue.maxUses} 次`}>
+        <div
+          className="stat"
+          title={
+            gameConfig.mechanisms.rescueSettlement.enabled
+              ? `求援当场不收钱，回城结算时付 ${gameConfig.mechanisms.rescueSettlement.deferredDebt} 元${
+                  gameConfig.mechanisms.rescueSettlement.revenueShare > 0
+                    ? ` + 宝石收入 ${Math.round(gameConfig.mechanisms.rescueSettlement.revenueShare * 100)}%`
+                    : ''
+                }；每局最多 ${gameConfig.mechanisms.emergencyRescue.maxUses} 次`
+              : `求援 ${gameConfig.mechanisms.emergencyRescue.cost} 元（当场付），每局最多 ${gameConfig.mechanisms.emergencyRescue.maxUses} 次`
+          }
+        >
           <span className="label">求援</span>
           <span className="value">
-            {game.stats.emergencyRescues >= gameConfig.mechanisms.emergencyRescue.maxUses ? '已用过' : '可用'}
+            {game.stats.emergencyRescues >= gameConfig.mechanisms.emergencyRescue.maxUses
+              ? '已用过'
+              : gameConfig.mechanisms.rescueSettlement.enabled
+                ? '可赊账'
+                : '可用'}
           </span>
+        </div>
+      )}
+      {gameConfig.mechanisms.upkeep.enabled && (
+        <div
+          className="stat"
+          title={
+            gameConfig.mechanisms.upkeep.mode === 'overtime'
+              ? `前 ${gameConfig.mechanisms.upkeep.freeDays} 天免费，之后每天 ${gameConfig.mechanisms.upkeep.overtimeCostPerDay} 元，回城结算`
+              : `每天 ${gameConfig.mechanisms.upkeep.costPerDay} 元，回城结算`
+          }
+        >
+          <span className="label">累计运营费</span>
+          <span className="value">{accruedUpkeep} 元</span>
         </div>
       )}
       {gameConfig.mechanisms.returnIntel.enabled && game.stats.returnIntelTiles > 0 && (

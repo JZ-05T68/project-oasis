@@ -2,7 +2,6 @@ import type {
   ActionInfo,
   ForecastView,
   GameState,
-  MineInfo,
   MineSlot,
   Phase,
   TentItem,
@@ -12,7 +11,7 @@ import type {
 } from '../game/types';
 import { gameConfig } from '../game/config/gameConfig';
 import { accidentChanceForMiningDay, desertExtraDaysForLoad, isOverloaded, yieldForMiningDay } from '../game/rules/mining';
-import { expectedReturnDays } from '../game/rules/outcome';
+import { expectedReturnDays, rescueImmediateCost } from '../game/rules/outcome';
 import { getLegalMoves, getAvailableActions, getCurrentWeather, isTerrainKnown } from '../game';
 import { gridNeighbors } from '../game/map/grid';
 
@@ -23,6 +22,14 @@ import { gridNeighbors } from '../game/map/grid';
  * 因此无法读取：未来天气表、遭遇预生成表、未抵达绿洲的干涸状态、RNG 内部状态。
  * 战争迷雾：未知地形显示为 null（道路拓扑/格子坐标按规则始终可见）。
  */
+
+/** 玩家视角的矿区公开信息（不含返城鉴定才揭晓的单价与随机扰动） */
+export interface PublicMineInfo {
+  tileId: TileId;
+  slot: MineSlot;
+  /** 客观难度分：由「最短合法往返方案」决定，玩家站在地图前可以自己估出来 */
+  difficultyScore: number;
+}
 
 export interface FairTile {
   id: TileId;
@@ -43,7 +50,11 @@ export interface FairMap {
   cityId: TileId;
   tiles: Record<TileId, FairTile>;
   /** 两个矿区的完整公开情报（价格/坐标，开局即可见） */
-  mines: MineInfo[];
+  /**
+   * 玩家视角的矿区信息（v0.3.0 起**只含公开部分**）。
+   * 真实单价 `gemPrice` 与随机扰动 `detail.jitter` 不在这里 —— 见下方 buildFairMap 说明。
+   */
+  mines: PublicMineInfo[];
   mineIds: TileId[];
   /** 四方向邻居（含边界裁剪） */
   neighbors(id: TileId): TileId[];
@@ -151,6 +162,53 @@ export interface FairView {
       /** 基于公开信息的返程天数估计 */
       expectedReturnDays: number;
     };
+    /* ---- v0.3.0 Economic Independence Lab：经济结算机制的公开规则 ---- */
+    /** Family A 延期求援：当场付多少 + 回城结账付多少 */
+    rescueSettlement: {
+      enabled: boolean;
+      immediateCost: number;
+      deferredDebt: number;
+      revenueShare: number;
+      minFee: number;
+      debtCap: number;
+    };
+    /** Family B 远征运营成本 */
+    upkeep: {
+      enabled: boolean;
+      mode: 'perDay' | 'overtime' | 'miningDay';
+      costPerDay: number;
+      freeDays: number;
+      overtimeCostPerDay: number;
+      /** 按「当前已用天数」计的累计运营成本（Bot 与真人都能自己算出来的公开量） */
+      accruedCost: number;
+      /** 再多花 1 天的边际运营成本（overtime 模式下未超期时为 0） */
+      marginalPerDay: number;
+    };
+    /** Family C 运输 / 佣金 / 鉴定费 */
+    tradeCost: {
+      enabled: boolean;
+      transportPerKg: number;
+      commissionRate: number;
+      fixedAppraisalFee: number;
+    };
+    /** Family AI-2 逾期折价 */
+    lateSale: {
+      enabled: boolean;
+      /** 第几天开始算逾期（daysUsed > deadlineDay 即折价） */
+      deadlineDay: number;
+      discount: number;
+    };
+    /**
+     * 城里的**行情参考价**（元/kg）。
+     *
+     * v0.3.0 新增：既然规则规定「精确单价返城鉴定才公布」，玩家就不可能精确计算货值；
+     * 但要做任何经济决策（本轮尤其是"这批货值不值这笔救援债"），
+     * 玩家至少需要一个大致行情 —— 这就是城里打听得到的均价（取公开价格区间的中点）。
+     * 它**不是**任何矿区的真实单价，真实单价在区间内上下浮动约 ±40%，
+     * 这个不确定性被刻意保留：正因为估不准，"赌一把叫了救援结果鉴定价很低"才会
+     * 真实地产生"活着回来却亏了"的结局。
+     */
+    marketReferencePrice: number;
     /** 当前是否位于村庄（村庄服务可用） */
     villageHere: boolean;
   };
@@ -174,6 +232,27 @@ export interface FairView {
   pendingEvent: GameState['pendingEvents'][0] | null;
 }
 
+/**
+ * v0.3.0 运营成本：按「当前已用天数」计的累计成本。
+ * 与结算函数 `operatingCost()` 共用同一份公式，只是这里用当前 daysUsed（中途视角）。
+ */
+function accruedUpkeep(state: GameState): number {
+  const cfg = gameConfig.mechanisms.upkeep;
+  if (!cfg.enabled) return 0;
+  if (cfg.mode === 'perDay') return Math.round(state.daysUsed * cfg.costPerDay);
+  if (cfg.mode === 'miningDay') return Math.round(state.stats.miningDays * cfg.costPerDay);
+  return Math.round(Math.max(0, state.daysUsed - cfg.freeDays) * cfg.overtimeCostPerDay);
+}
+
+/** 再多花 1 天的边际运营成本（overtime 模式下尚未超期时为 0） */
+function marginalUpkeepPerDay(state: GameState): number {
+  const cfg = gameConfig.mechanisms.upkeep;
+  if (!cfg.enabled) return 0;
+  if (cfg.mode === 'perDay') return cfg.costPerDay;
+  if (cfg.mode === 'miningDay') return state.phase === 'MINING' ? cfg.costPerDay : 0;
+  return state.daysUsed + 1 > cfg.freeDays ? cfg.overtimeCostPerDay : 0;
+}
+
 function buildFairMap(state: GameState): FairMap {
   const tiles: Record<TileId, FairTile> = {};
   for (const id of Object.keys(state.map.tiles)) {
@@ -190,15 +269,31 @@ function buildFairMap(state: GameState): FairMap {
       isCity,
       isMine,
       mineSlot: isMine ? t.mineSlot : undefined,
-      minePrice: mine?.gemPrice,
+      /**
+       * v0.3.0 装置修复（§34 H10）：**不再暴露 `minePrice`**。
+       * 规则页 §十一 明确写着「游戏全程不显示矿区精确单价，返城后才鉴定」，
+       * 但这里原先把**所有矿区**（包括从未去过的那座）的真实单价都放进了 FairView，
+       * 于是此前所有 Bot 都在"全知价格"下做决策 —— 这是一个真实的隐藏价格泄漏，
+       * 会让任何依赖"货值判断"的经济机制（本轮的延期求援正是如此）结论失真。
+       */
+      minePrice: undefined,
     };
+    void mine;
   }
   return {
     rows: state.map.rows,
     cols: state.map.cols,
     cityId: state.map.cityId,
     tiles,
-    mines: state.map.mines,
+    /**
+     * 公开矿区信息只保留"玩家站在地图前就能看到的"部分：位置、槽位与客观难度分。
+     * `gemPrice` / `detail.jitter` 属于返城鉴定才揭晓的信息，一律不进 FairView。
+     */
+    mines: state.map.mines.map((m) => ({
+      tileId: m.tileId,
+      slot: m.slot,
+      difficultyScore: m.difficultyScore,
+    })),
     mineIds: state.map.mines.map((m) => m.tileId),
     neighbors: (id: TileId) => gridNeighbors(state.map, id),
   };
@@ -291,7 +386,8 @@ export function buildFairView(state: GameState): FairView {
       },
       emergencyRescue: {
         enabled: gameConfig.mechanisms.emergencyRescue.enabled,
-        cost: gameConfig.mechanisms.emergencyRescue.cost,
+        /** v0.3.0：延期求援开启时，这里的 cost = 当场应付现金（可为 0） */
+        cost: rescueImmediateCost(),
         extraDays: gameConfig.mechanisms.emergencyRescue.extraDays,
         staminaBack: gameConfig.mechanisms.emergencyRescue.staminaBack,
         triggerMarginDays: gameConfig.mechanisms.emergencyRescue.triggerMarginDays,
@@ -300,6 +396,39 @@ export function buildFairView(state: GameState): FairView {
         /** 基于公开信息的返程天数估计（Bot 与真人用同一个数） */
         expectedReturnDays: expectedReturnDays(state),
       },
+      rescueSettlement: {
+        enabled: gameConfig.mechanisms.rescueSettlement.enabled,
+        immediateCost: gameConfig.mechanisms.rescueSettlement.enabled
+          ? Math.round(gameConfig.mechanisms.rescueSettlement.immediateCost)
+          : 0,
+        deferredDebt: Math.round(gameConfig.mechanisms.rescueSettlement.deferredDebt),
+        revenueShare: gameConfig.mechanisms.rescueSettlement.revenueShare,
+        minFee: Math.round(gameConfig.mechanisms.rescueSettlement.minFee),
+        debtCap: Math.round(gameConfig.mechanisms.rescueSettlement.debtCap),
+      },
+      upkeep: {
+        enabled: gameConfig.mechanisms.upkeep.enabled,
+        mode: gameConfig.mechanisms.upkeep.mode,
+        costPerDay: gameConfig.mechanisms.upkeep.costPerDay,
+        freeDays: gameConfig.mechanisms.upkeep.freeDays,
+        overtimeCostPerDay: gameConfig.mechanisms.upkeep.overtimeCostPerDay,
+        accruedCost: accruedUpkeep(state),
+        marginalPerDay: marginalUpkeepPerDay(state),
+      },
+      tradeCost: {
+        enabled: gameConfig.mechanisms.tradeCost.enabled,
+        transportPerKg: gameConfig.mechanisms.tradeCost.transportPerKg,
+        commissionRate: gameConfig.mechanisms.tradeCost.commissionRate,
+        fixedAppraisalFee: Math.round(gameConfig.mechanisms.tradeCost.fixedAppraisalFee),
+      },
+      lateSale: {
+        enabled: gameConfig.mechanisms.lateSale.enabled,
+        deadlineDay: state.maxDays - gameConfig.mechanisms.lateSale.graceDays,
+        discount: gameConfig.mechanisms.lateSale.discount,
+      },
+      marketReferencePrice: Math.round(
+        (gameConfig.mineValuation.clampMin + gameConfig.mineValuation.clampMax) / 2,
+      ),
       /** 村庄服务当前是否可用（由引擎的 ActionInfo 驱动，Bot 不必自己推断） */
       villageHere: state.map.tiles[state.position]?.terrain === 'VILLAGE',
     },

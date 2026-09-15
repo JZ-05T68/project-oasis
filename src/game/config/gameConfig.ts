@@ -187,6 +187,89 @@ export interface EmergencyRescueConfig {
   cargoDroppedKg: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* v0.3.0 Economic Independence Lab —— 经济结算机制族                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Family A —— 延期结算的紧急求援（本轮 P0）。
+ *
+ * 上一轮已证明的结构性死结：成功局返城时手里现金中位数只有 ~250 元、
+ * 上限 ~550 元，而要把「成功但亏损」做出来需要 ~2550 元量级的经济影响。
+ * 因此**即时现金支付这条路在结构上走不通**（再怎么搜 400/450/500/550 都一样）。
+ *
+ * 延期支付绕开可负担性悬崖：求援当场不收钱，返城结算时从宝石收入里扣。
+ * 玩家规则一句话：「驼队可以把你救回去，但报酬等到回城结账时再算。」
+ */
+export interface RescueSettlementConfig {
+  enabled: boolean;
+  /** 求援当时的即时现金支出（0 = 完全延期，不再有可负担性悬崖） */
+  immediateCost: number;
+  /** 返城结算时一次性偿还的固定债务（元） */
+  deferredDebt: number;
+  /** 返城结算时按宝石销售收入抽成的比例（0~1） */
+  revenueShare: number;
+  /** 抽成保底：fee = max(minFee, deferredDebt + share × gemRevenue) */
+  minFee: number;
+  /**
+   * 债务上限（0 = 不设上限）。
+   * 用于防止「求援后倒欠一大笔」这种玩家无法预期的极端结果。
+   */
+  debtCap: number;
+}
+
+/**
+ * Family B —— 远征运营成本（Settlement Upkeep）。
+ *
+ * 「远征越久，驮队、补给、人员的开销越高，返城时一并结算。」
+ * 三种形态：
+ *   perDay     —— 每一天都收
+ *   overtime   —— 前 freeDays 天免费，之后每天收（优先：更容易产生"拖太久不划算"）
+ *   miningDay  —— 只按在矿区驻扎的天数收（直接制造采矿时长取舍）
+ */
+export interface UpkeepConfig {
+  enabled: boolean;
+  mode: 'perDay' | 'overtime' | 'miningDay';
+  /** perDay / miningDay：每天（或每个采矿日）的开销（元） */
+  costPerDay: number;
+  /** overtime：免费基础天数 */
+  freeDays: number;
+  /** overtime：超出免费天数后每天的开销（元） */
+  overtimeCostPerDay: number;
+  /**
+   * 是否只在成功返城后结算。
+   * 默认 true：失败局本来就没有宝石收入，再叠加运营费只会让失败更惨，
+   * 而本轮的目标是**解耦生存与赚钱**，不是让失败更痛。
+   */
+  onlyOnSuccess: boolean;
+}
+
+/** Family C —— 运输 / 鉴定 / 佣金（本轮定位为 ECONOMIC_CONTROL 对照组） */
+export interface TradeCostConfig {
+  enabled: boolean;
+  /** 按宝石总重量收取的运输费（元/kg）——会制造「是否丢货减负」的取舍 */
+  transportPerKg: number;
+  /** 宝石销售佣金比例（0~1） */
+  commissionRate: number;
+  /** 固定鉴定费（元） */
+  fixedAppraisalFee: number;
+}
+
+/**
+ * Family AI-2 —— 逾期折价（AI 自主提出候选）。
+ *
+ * 「商队只在城门集市收货；超过第 N 天才回城的宝石只能折价卖给贩子。」
+ * 它不是统一税：只有**拖得久**的局才被抽，因此直接制造
+ * 「再挖一天 vs 赶上集市」的时间取舍，而不动那些干脆利落的局。
+ */
+export interface LateSaleConfig {
+  enabled: boolean;
+  /** 从第几天开始算逾期（相对 maxDays 的倒计时：maxDays - graceDays） */
+  graceDays: number;
+  /** 逾期后的折价率（0.25 = 只卖到原价的 75%） */
+  discount: number;
+}
+
 export interface MechanismConfig {
   diminishingYield: DiminishingYieldConfig;
   accidentRisk: AccidentRiskConfig;
@@ -196,6 +279,11 @@ export interface MechanismConfig {
   villageService: VillageServiceConfig;
   surgeMining: SurgeMiningConfig;
   emergencyRescue: EmergencyRescueConfig;
+  /* ---- v0.3.0 Economic Independence Lab（默认全关） ---- */
+  rescueSettlement: RescueSettlementConfig;
+  upkeep: UpkeepConfig;
+  tradeCost: TradeCostConfig;
+  lateSale: LateSaleConfig;
 }
 
 const baseMechanisms: MechanismConfig = {
@@ -350,6 +438,71 @@ const baseMechanisms: MechanismConfig = {
     maxUses: 1,
     cargoDroppedKg: 0,
   },
+
+  /* ---------- v0.3.0 Economic Independence Lab ---------- */
+
+  /**
+   * Family A —— 延期求援。
+   * 默认全关（deferredDebt = 0 / revenueShare = 0），因此开启 emergencyRescue 的
+   * 现有正式行为完全不变：仍然当场付 400 元。
+   * 打开本机制时才改为「当场付 immediateCost（可 0）+ 返城结算时付债务/抽成」。
+   */
+  /**
+   * Family A —— 延期求援（v0.3.0 正式落盘，机制 #1）。
+   *
+   * 为什么必须改：上一轮「当场付 400 元」撞上**可负担性悬崖**——
+   * 成功返城局手上现金中位数只有约 250 元、上限约 550 元，而要把
+   * 「成功但亏损」做出来需要 2500 元量级的经济影响。再怎么搜 400/450/500/550 都一样。
+   * 延期支付绕开这道悬崖：求援当场不收钱，回城结算时从宝石收入里扣。
+   *
+   * 落盘参数来源（不是人工指定）：Phase A（16 候选 ×1000）× Phase B（90 参数点 ×800）
+   * → Phase C（3 决赛候选 ×25,000 validation）→ Phase D（50,000 holdout）。
+   * 债务 2800 元是「既让求援成为一个真实选择（货值不够就该认赔），
+   * 又不把它变成常规续命按钮」的取值：债务 1200/2000 时求援使用率 46%/29%，
+   * 会把完成率顶到 81~83%（超出 §22 硬约束）；2800 时使用率回落到 2~3%，完成率稳在 69.5%。
+   */
+  rescueSettlement: {
+    enabled: true,
+    immediateCost: 0,
+    deferredDebt: 2800,
+    revenueShare: 0,
+    minFee: 0,
+    debtCap: 0,
+  },
+
+  /**
+   * Family B —— 远征运营成本（v0.3.0 正式落盘，机制 #2）。
+   *
+   * 形态选择依据：perDay（每天都收）在评价函数里被判为**准统一税**——
+   * 它对所有成功局一视同仁地搬走利润；overtime（前 22 天免费，之后每天 160 元）
+   * 只罚**拖得久**的局，干脆利落的局一分不付，因此既过了 §16 反统一税门禁，
+   * 也更像一句人话：「前 22 天商队包干，之后每天自己掏」。
+   *
+   * 落盘参数：freeDays 22 / overtimeCostPerDay 160。
+   */
+  upkeep: {
+    enabled: true,
+    mode: 'overtime',
+    costPerDay: 0,
+    freeDays: 22,
+    overtimeCostPerDay: 160,
+    onlyOnSuccess: true,
+  },
+
+  /** Family C —— 运输 / 佣金。默认关闭（本轮主要作为 ECONOMIC_CONTROL 对照）。 */
+  tradeCost: {
+    enabled: false,
+    transportPerKg: 0,
+    commissionRate: 0,
+    fixedAppraisalFee: 0,
+  },
+
+  /** Family AI-2 —— 逾期折价。默认关闭。 */
+  lateSale: {
+    enabled: false,
+    graceDays: 8,
+    discount: 0,
+  },
 };
 
 const baseConfig = {
@@ -405,8 +558,25 @@ const baseConfig = {
    *    让 WastefulBot 的 EV 反超。
    *  - 625 下 3 顶帐篷花掉 1875 元，只剩 125 元 —— 正好满足
    *    「买 3 顶以后几乎没有资源购买其他装备」的设计意图。
+   *
+   * **v0.3.0 修正：625 → 800（Economic Independence Lab）。**
+   *
+   * 为什么必须动：修正上一轮 `emergencyRescue.extraDays` 的反向语义 Bug 之后，
+   * 合理玩家代理的完成率从记录的 69.98% 回升到 82.63%（关闭求援也有 77.27%），
+   * 也就是说上一轮的 70% 有相当部分来自那个会害死玩家的 Bug。要守住 §22 的
+   * 68~72% 硬约束，必须在**不碰 §23 禁用清单**（天气伤害/耐力/maxDays/事故率）的前提下
+   * 找一个生存侧杠杆——装备定价是唯一符合的：
+   *   帐篷涨价 ⇒ 途中买不起商队/市集的补充帐篷 ⇒ 天气来袭没有帐篷 ⇒ 耐力死亡。
+   *
+   * 实测（econ-train，800 seeds）：625→82.63% / 700→79.25% / 750→72.0% /
+   * 800→69.38% / 850→69.75% / 900→69.38% / 1000→68.25%。取 800。
+   *
+   * ⚠️ 代价（必须知道）：这会推翻上面那条「3 顶买得起、4 顶买不起」的设计约束
+   * （该约束要求价格落在 (500, 666]）。800 元下只能买 2 顶。
+   * 这是本轮为了同时满足 §22（完成率）与 §2（盈利率）所做的**显式取舍**，
+   * 上一轮的 625 是在"完成率被 Bug 压低"的错误前提下标定的，需要重新标定。
    */
-  tentPrice: 625,
+  tentPrice: 800,
   tentDesertCharges: 3,
   compassPrice: 100,
   /** 商队二手帐篷价格与耐久 */

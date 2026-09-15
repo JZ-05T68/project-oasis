@@ -41,6 +41,7 @@ import {
   canScout,
   canSurgeMine,
   expectedReturnDays,
+  rescueImmediateCost,
   scoutAhead,
   surgeYield,
   villageSellUnitPrice,
@@ -890,15 +891,25 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     const eta = expectedReturnDays(state);
     const ok = canEmergencyRescue(state, eta);
     const daysLeft = state.maxDays - state.daysUsed;
+    const imm = rescueImmediateCost();
+    const rsCfg = gameConfig.mechanisms.rescueSettlement;
+    const deferredNote = rsCfg.enabled
+      ? `回城结账时另付 ${rsCfg.deferredDebt} 元${rsCfg.revenueShare > 0 ? ` + 宝石收入 ${Math.round(rsCfg.revenueShare * 100)}%` : ''}`
+      : '';
     actions.push({
       action: { type: 'EMERGENCY_RESCUE' },
-      label: `紧急求援（${cfg.cost} 元，换 ${cfg.extraDays} 天 + ${cfg.staminaBack} 耐力）`,
-      price: cfg.cost,
-      hint: '走投无路时的最后一根稻草：雇佣驼队把你带回去。它救的是命，不是钱包。',
+      label:
+        imm > 0
+          ? `紧急求援（${imm} 元，换 ${cfg.extraDays} 天 + ${cfg.staminaBack} 耐力）${deferredNote ? ` · ${deferredNote}` : ''}`
+          : `紧急求援（延期结算：${deferredNote}，换 ${cfg.extraDays} 天 + ${cfg.staminaBack} 耐力）`,
+      price: imm,
+      hint: rsCfg.enabled
+        ? '走投无路时的最后一根稻草：驼队先把你带回去，报酬回城结账时从宝石收入里扣。'
+        : '走投无路时的最后一根稻草：雇佣驼队把你带回去。它救的是命，不是钱包。',
       disabled: !ok,
       disabledReason: !ok
-        ? (state.cash < cfg.cost
-            ? `现金不足（需要 ${cfg.cost} 元）`
+        ? (state.cash < imm
+            ? `现金不足（需要 ${imm} 元）`
             : state.stats.emergencyRescues >= cfg.maxUses
               ? '本局已经求援过了'
               : `还没到绝境（剩余 ${Math.max(0, daysLeft)} 天，返程估计需要 ${eta} 天）`)
@@ -1290,28 +1301,52 @@ export function performAction(state: GameState, action: GameAction): GameState {
     case 'EMERGENCY_RESCUE': {
       // Family H —— 应急补救：花钱买天数与耐力（只在绝境可用）
       const cfg = gameConfig.mechanisms.emergencyRescue;
+      const rs = gameConfig.mechanisms.rescueSettlement;
       const eta = expectedReturnDays(s);
       if (!canEmergencyRescue(s, eta)) throw new GameError('RESCUE_DISABLED', '当前不满足求援条件');
+      const immediate = rescueImmediateCost();
+      /** 延期结算时，当场不收钱，报酬在返城结算时从宝石收入里扣（§8 A1/A2） */
+      const deferredHint = rs.enabled
+        ? `报酬不用现在付——回城结账时他们要从宝石收入里拿走 ${rs.deferredDebt} 元${rs.revenueShare > 0 ? ` + ${Math.round(rs.revenueShare * 100)}% 分成` : ''}。`
+        : '';
       recordResult(
         s,
         {
           title: '紧急求援',
-          message: `你花 ${cfg.cost} 元雇佣了一支驼队，他们带来 ${cfg.extraDays} 天的补给和 ${cfg.staminaBack} 点耐力。命保住了，钱没了。`,
+          message:
+            immediate > 0
+              ? `你花 ${immediate} 元雇佣了一支驼队，他们带来 ${cfg.extraDays} 天的补给和 ${cfg.staminaBack} 点耐力。命保住了，钱没了。${deferredHint}`
+              : `你雇佣了一支驼队，他们带来 ${cfg.extraDays} 天的补给和 ${cfg.staminaBack} 点耐力。${deferredHint}`,
           kind: 'info',
-          logText: `紧急求援：-${cfg.cost} 元，+${cfg.extraDays} 天，+${cfg.staminaBack} 耐力。`,
+          logText:
+            immediate > 0
+              ? `紧急求援：-${immediate} 元，+${cfg.extraDays} 天，+${cfg.staminaBack} 耐力。${deferredHint}`
+              : `紧急求援（延期结算）：+${cfg.extraDays} 天，+${cfg.staminaBack} 耐力。${deferredHint}`,
           force: true,
         },
         () => {
-          s.cash -= cfg.cost;
+          s.cash -= immediate;
           s.stats.emergencyRescues += 1;
-          s.stats.emergencyRescueCost += cfg.cost;
+          s.stats.emergencyRescueCost += immediate;
           s.stamina = Math.min(gameConfig.maxStamina, s.stamina + cfg.staminaBack);
           if (cfg.cargoDroppedKg > 0) {
             const drop = Math.min(cfg.cargoDroppedKg, s.gemsKg);
             s.gemsKg = round2(s.gemsKg - drop);
             s.stats.droppedKg = round2(s.stats.droppedKg + drop);
           }
-          if (cfg.extraDays > 0) addDays(s, cfg.extraDays);
+          /**
+           * v0.3.0 装置修复（§68）：`extraDays` 的语义是「**换回** N 天时间」
+           * （UI 文案、规则页、Bot 的 `daysLeft + extraDays` 判据、结算口径都按这个理解），
+           * 但这里原先调用的是 `addDays(s, extraDays)` —— 而 `addDays` 推进的是**已用天数**，
+           * 于是「买回 5 天」被实际执行成「倒扣 5 天」，求援反而加速 TIMEOUT。
+           *
+           * 上一轮（Outcome Lab v0.2.0）的 Completion 69.98% 有一部分正是靠这个
+           * 反向语义压下来的 —— 那等价于「让用了求援的玩家更容易死」，
+           * 与本轮 §23「不得靠提高死亡概率压盈利率」同类，必须修正。
+           *
+           * 修正后：extraDays 延长本次远征的**期限**（maxDays），符合规则页文案。
+           */
+          if (cfg.extraDays > 0) s.maxDays += cfg.extraDays;
         },
       );
       finalizeTurn(s);

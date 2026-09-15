@@ -2,6 +2,7 @@ import { createNewGame, performAction, performMove, resolvePendingEvent } from '
 import type { EventChoice, GameAction, GameState, TileId } from '../game/types';
 import { hashSeed, nextRandom } from '../game/random/rng';
 import { gameConfig } from '../game/config/gameConfig';
+import { computeSettlement } from '../game/rules/settlement';
 import { buildFairView, FairView } from './fairView';
 import { bfsPath, isNormalTile } from '../game/map/grid';
 import { returnViaFilterExcept } from '../game/rules/movement';
@@ -98,6 +99,12 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
   const settlementDays = state.stats;
   const status: RunResult['status'] = state.status === 'VICTORY' ? 'VICTORY' : 'DEFEAT';
   const mined = state.stats.miningDays > 0;
+  /**
+   * v0.3.0：经济口径**唯一真源** = 正式结算函数 computeSettlement。
+   * 仿真不再自己复刻一遍 finalAssets 公式（否则实验结论与正式 UI 会漂移）。
+   */
+  const sv = computeSettlement(state);
+  const gemRev = sv.gemRevenue;
   return {
     seed,
     bot,
@@ -133,14 +140,11 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     forecastPacks: state.stats.forecastPacks,
     gemsKg: state.gemsKg,
     gemPrice: state.gemPrice,
-    gemRevenue: state.status === 'VICTORY' ? Math.round(state.gemsKg * (state.gemPrice ?? 0)) : 0,
-    equipmentSpent: state.equipmentSpent,
+    gemRevenue: gemRev,
+    equipmentSpent: sv.equipmentSpent,
     cashRemaining: state.cash,
-    finalAssets: state.cash + (state.status === 'VICTORY' ? Math.round(state.gemsKg * (state.gemPrice ?? 0)) : 0),
-    netProfit:
-      state.cash +
-      (state.status === 'VICTORY' ? Math.round(state.gemsKg * (state.gemPrice ?? 0)) : 0) -
-      gameConfig.startCash,
+    finalAssets: sv.finalCash,
+    netProfit: sv.netProfit,
     tentsBought: 0,
     compassesBought: 0,
     tentUses: 0,
@@ -165,6 +169,25 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     emergencyRescues: state.stats.emergencyRescues ?? 0,
     emergencyRescueCost: state.stats.emergencyRescueCost ?? 0,
     returnIntelTiles: state.stats.returnIntelTiles ?? 0,
+    /* ---- v0.3.0 经济瀑布（§25/§64） ---- */
+    grossGemRevenue: sv.grossGemRevenue,
+    lateSaleLoss: sv.lateSaleLoss,
+    forecastSpent: sv.forecastSpent,
+    villageSpend: sv.villageSpend,
+    rescueImmediateSpend: sv.rescueImmediateSpend,
+    rescueDeferredDebt: sv.rescueDeferredDebt,
+    rescueRevenueShare: sv.rescueRevenueShare,
+    rescueSettlement: sv.rescueSettlement,
+    operatingCost: sv.operatingCost,
+    transportCost: sv.transportCost,
+    commissionCost: sv.commissionCost,
+    appraisalFee: sv.appraisalFee,
+    settlementExpenses: sv.settlementExpenses,
+    tripCashFlow: sv.tripCashFlow,
+    otherCashDelta: sv.otherCashDelta,
+    finalCash: sv.finalCash,
+    accountingOk: sv.accountingOk,
+    accountingResidual: sv.accountingResidual,
     returnPath: [...state.visitedReturn],
     returnFirstStep: state.visitedReturn.filter((id) => id !== state.mineEntranceId)[0] ?? null,
     returnBfsFirstStep: bfsFirstReturnStep(state),

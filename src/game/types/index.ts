@@ -347,6 +347,43 @@ export interface SettlementView {
   emergencyRescues: number;
   emergencyRescueCost: number;
   returnIntelTiles: number;
+  /* ---- v0.3.0 Economic Independence Lab 经济瀑布（§25/§64） ---- */
+  /** 逾期折价前的宝石销售总收入（失败局恒为 0，见 §36） */
+  grossGemRevenue: number;
+  /** 逾期折价损失（元） */
+  lateSaleLoss: number;
+  /** 天气预报累计现金支出 */
+  forecastSpent: number;
+  /** 村庄服务累计现金支出 */
+  villageSpend: number;
+  /** 求援当场支付的现金（延期机制下可为 0） */
+  rescueImmediateSpend: number;
+  /** 求援延期债务：返城结算时偿还的固定部分（元） */
+  rescueDeferredDebt: number;
+  /** 求援延期债务：按宝石收入抽成的部分（元） */
+  rescueRevenueShare: number;
+  /** 求援结算费用合计 = 固定债务 + 抽成（含保底调整） */
+  rescueSettlement: number;
+  /** 远征运营/运输成本（元） */
+  operatingCost: number;
+  /** 按重量计的运输费（元） */
+  transportCost: number;
+  /** 销售佣金（元） */
+  commissionCost: number;
+  /** 固定鉴定费（元） */
+  appraisalFee: number;
+  /** 全部结算期费用合计（不含逾期折价，折价计入 lateSaleLoss） */
+  settlementExpenses: number;
+  /** 旅途中现金净变动 = 返城时现金 − 初始资金（负数=净支出） */
+  tripCashFlow: number;
+  /** 事件等其它渠道的现金净变动（残差项，用于会计对账） */
+  otherCashDelta: number;
+  /** 最终现金 = 返城现金 + 宝石净收入 − 结算费用 */
+  finalCash: number;
+  /** 会计恒等式校验：finalCash 两种算法是否逐元一致 */
+  accountingOk: boolean;
+  /** 会计残差（元；必须为 0） */
+  accountingResidual: number;
 }
 
 /* ------------------------------------------------------------------ */

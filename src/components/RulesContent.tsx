@@ -131,15 +131,72 @@ function RulesContent() {
       )}
       {gameConfig.mechanisms.emergencyRescue.enabled && (
         <>
-          <h4>八之六、紧急求援（v0.2.0 新机制）</h4>
+          <h4>八之六、紧急求援</h4>
           <p>
-            当返程预计<b>剩余时间不足 {gameConfig.mechanisms.emergencyRescue.triggerMarginDays} 天</b>时，
-            可以呼叫商队<b>紧急求援</b>：花费 <b>{gameConfig.mechanisms.emergencyRescue.cost} 元</b>，
-            换回 <b>{gameConfig.mechanisms.emergencyRescue.extraDays} 天</b> 时间与
-            <b>{gameConfig.mechanisms.emergencyRescue.staminaBack} 点耐力</b>
+            当返程预计<b>剩余时间不足 {gameConfig.mechanisms.emergencyRescue.triggerMarginDays} 天</b>、
+            或<b>耐力见底</b>时，可以呼叫商队<b>紧急求援</b>：延长
+            <b> {gameConfig.mechanisms.emergencyRescue.extraDays} 天</b> 期限并恢复
+            <b> {gameConfig.mechanisms.emergencyRescue.staminaBack} 点耐力</b>
             {gameConfig.mechanisms.emergencyRescue.maxUses > 0 ? `（每局最多 ${gameConfig.mechanisms.emergencyRescue.maxUses} 次）` : ''}。
-            它能在你快要赶不上时间时把你捞回来，<b>但会把利润直接吃掉一大块</b>——
-            安全返城与赚钱，是两件需要分别考虑的事。
+            {gameConfig.mechanisms.rescueSettlement.enabled ? (
+              <>
+                {' '}
+                求援<b>当场不收钱</b>——驼队愿意赊账；但安全返城结算时，他们要从你的宝石收入里
+                {gameConfig.mechanisms.rescueSettlement.deferredDebt > 0
+                  ? `拿走 <b>${gameConfig.mechanisms.rescueSettlement.deferredDebt} 元</b>`
+                  : ''}
+                {gameConfig.mechanisms.rescueSettlement.deferredDebt > 0 && gameConfig.mechanisms.rescueSettlement.revenueShare > 0 ? '，外加 ' : ''}
+                {gameConfig.mechanisms.rescueSettlement.revenueShare > 0
+                  ? `分走销售收入的 <b>${Math.round(gameConfig.mechanisms.rescueSettlement.revenueShare * 100)}%</b>`
+                  : ''}
+                。救得回命，不一定救得回钱包——货不值钱的时候，认赔可能比叫救援更划算。
+              </>
+            ) : (
+              <>
+                {' '}
+                代价是当场支付 <b>{gameConfig.mechanisms.emergencyRescue.cost} 元</b>现金。
+                它能在你快要赶不上时间时把你捞回来，<b>但会把利润直接吃掉一大块</b>——
+                安全返城与赚钱，是两件需要分别考虑的事。
+              </>
+            )}
+          </p>
+        </>
+      )}
+      {gameConfig.mechanisms.upkeep.enabled && (
+        <>
+          <h4>八之七、远征运营成本</h4>
+          <p>
+            远征不是免费的：驮队、草料与补给每天都在烧钱。
+            {gameConfig.mechanisms.upkeep.mode === 'overtime' ? (
+              <>
+                {' '}
+                前 <b>{gameConfig.mechanisms.upkeep.freeDays} 天</b>由商队承担，从第
+                <b> {gameConfig.mechanisms.upkeep.freeDays + 1} 天</b>起，每天要付
+                <b> {gameConfig.mechanisms.upkeep.overtimeCostPerDay} 元</b>。
+              </>
+            ) : gameConfig.mechanisms.upkeep.mode === 'miningDay' ? (
+              <>
+                {' '}
+                在矿区每驻扎 1 天，要交<b> {gameConfig.mechanisms.upkeep.costPerDay} 元</b>场地与抽水费。
+              </>
+            ) : (
+              <>
+                {' '}
+                每进行 1 天要付<b> {gameConfig.mechanisms.upkeep.costPerDay} 元</b>。
+              </>
+            )}
+            {' '}这笔钱<b>回城结算时一并支付</b>，走得多快就付得多省——
+            多挖一天值不值，得把它算进去。
+          </p>
+        </>
+      )}
+      {gameConfig.mechanisms.lateSale.enabled && (
+        <>
+          <h4>八之八、城门集市有截止日</h4>
+          <p>
+            城门集市只开到第 <b>{gameConfig.maxDays - gameConfig.mechanisms.lateSale.graceDays} 天</b>。
+            之后回城的宝石只能折价卖给贩子，<b>少卖 {Math.round(gameConfig.mechanisms.lateSale.discount * 100)}%</b>。
+            赶得上集市和挖得到矿，是两件要同时权衡的事。
           </p>
         </>
       )}

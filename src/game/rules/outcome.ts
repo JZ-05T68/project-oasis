@@ -200,13 +200,27 @@ export function surgeYield(baseYield: number): number {
  * 第 ③ 条是关键：只有真的走投无路时才允许花钱买命，否则它就会退化成
  * 「多花 400 元买 5 天」的常规加速手段（那就不是补救，而是支配策略）。
  */
+/**
+ * 求援的**当场**现金支出。
+ *
+ * v0.3.0：如果 `rescueSettlement` 打开，求援改为延期结算，当场支出 = immediateCost
+ * （可以为 0）——这正是绕开上一轮「可负担性悬崖（手上最多 550 元）」的关键。
+ * 机制关闭时恒等于 emergencyRescue.cost，行为与 v0.2.0 逐元一致。
+ */
+export function rescueImmediateCost(): number {
+  const rs = gameConfig.mechanisms.rescueSettlement;
+  const base = gameConfig.mechanisms.emergencyRescue;
+  if (!rs.enabled) return base.cost;
+  return Math.max(0, Math.round(rs.immediateCost));
+}
+
 export function canEmergencyRescue(state: GameState, returnEta: number): boolean {
   const cfg = gameConfig.mechanisms.emergencyRescue;
   if (!cfg.enabled) return false;
   if (state.status !== 'ONGOING') return false;
   if (state.phase !== 'OUTBOUND' && state.phase !== 'RETURN' && state.phase !== 'MINING') return false;
   if (state.stats.emergencyRescues >= cfg.maxUses) return false;
-  if (state.cash < cfg.cost) return false;
+  if (state.cash < rescueImmediateCost()) return false;
   const daysLeft = state.maxDays - state.daysUsed;
   const timeTight = daysLeft - returnEta < cfg.triggerMarginDays;
   const staminaLow = state.stamina <= 2;

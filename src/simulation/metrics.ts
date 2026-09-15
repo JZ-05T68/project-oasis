@@ -141,6 +141,44 @@ export interface RunResult {
   /** v0.2.0 Outcome Lab：返程情报揭示的格数（有限情报机制） */
   returnIntelTiles?: number;
 
+  /* ---- v0.3.0 Economic Independence Lab 经济瀑布（§25/§64） ---- */
+  /** 逾期折价前的宝石销售总额 */
+  grossGemRevenue?: number;
+  /** 逾期折价损失（元） */
+  lateSaleLoss?: number;
+  /** 天气预报现金支出 */
+  forecastSpent?: number;
+  /** 村庄服务现金支出 */
+  villageSpend?: number;
+  /** 求援当场现金支出（延期机制下可为 0） */
+  rescueImmediateSpend?: number;
+  /** 求援延期债务：固定部分 */
+  rescueDeferredDebt?: number;
+  /** 求援延期债务：收入抽成部分 */
+  rescueRevenueShare?: number;
+  /** 求援结算费用合计 */
+  rescueSettlement?: number;
+  /** 远征运营成本 */
+  operatingCost?: number;
+  /** 按重量计的运输费 */
+  transportCost?: number;
+  /** 销售佣金 */
+  commissionCost?: number;
+  /** 固定鉴定费 */
+  appraisalFee?: number;
+  /** 结算期费用合计（不含逾期折价） */
+  settlementExpenses?: number;
+  /** 旅途现金净变动 */
+  tripCashFlow?: number;
+  /** 事件等其它渠道现金净变动（对账残差） */
+  otherCashDelta?: number;
+  /** 最终现金 */
+  finalCash?: number;
+  /** 会计恒等式是否逐元成立 */
+  accountingOk?: boolean;
+  /** 会计残差（必须为 0） */
+  accountingResidual?: number;
+
   tentsBought: number;
   compassesBought: number;
   tentUses: number;
