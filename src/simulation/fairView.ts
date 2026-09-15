@@ -12,6 +12,7 @@ import type {
 } from '../game/types';
 import { gameConfig } from '../game/config/gameConfig';
 import { accidentChanceForMiningDay, desertExtraDaysForLoad, isOverloaded, yieldForMiningDay } from '../game/rules/mining';
+import { expectedReturnDays } from '../game/rules/outcome';
 import { getLegalMoves, getAvailableActions, getCurrentWeather, isTerrainKnown } from '../game';
 import { gridNeighbors } from '../game/map/grid';
 
@@ -114,6 +115,44 @@ export interface FairView {
       /** 抵达矿区时的勘察半径（0 = 关闭） */
       surveyRadius: number;
     };
+    /* ---- v0.2.0 Outcome Lab：四个新机制族的公开规则 ---- */
+    returnIntel: {
+      enabled: boolean;
+      mode: 'survey1' | 'returnCone' | 'compass';
+      coneCandidates: number;
+      scoutRadius: number;
+      compassCostPerScout: number;
+    };
+    villageService: {
+      enabled: boolean;
+      restCostPerStamina: number;
+      intelPrice: number;
+      intelTiles: number;
+      sellEnabled: boolean;
+      sellPriceRatio: number;
+      sellStepKg: number;
+    };
+    surgeMining: {
+      enabled: boolean;
+      oncePerRun: boolean;
+      yieldMultiplier: number;
+      extraDays: number;
+      /** 本局是否已经用掉这次机会 */
+      used: boolean;
+    };
+    emergencyRescue: {
+      enabled: boolean;
+      cost: number;
+      extraDays: number;
+      staminaBack: number;
+      triggerMarginDays: number;
+      used: number;
+      maxUses: number;
+      /** 基于公开信息的返程天数估计 */
+      expectedReturnDays: number;
+    };
+    /** 当前是否位于村庄（村庄服务可用） */
+    villageHere: boolean;
   };
 
   visitedOutbound: TileId[];
@@ -226,6 +265,43 @@ export function buildFairView(state: GameState): FairView {
         overloaded: isOverloaded(state.gemsKg),
         surveyRadius: gameConfig.mechanisms.loadReturn.surveyRadius,
       },
+      /* ---- v0.2.0 Outcome Lab：四个新机制族的公开规则 ---- */
+      returnIntel: {
+        enabled: gameConfig.mechanisms.returnIntel.enabled,
+        mode: gameConfig.mechanisms.returnIntel.mode,
+        coneCandidates: gameConfig.mechanisms.returnIntel.coneCandidates,
+        scoutRadius: gameConfig.mechanisms.returnIntel.scoutRadius,
+        compassCostPerScout: gameConfig.mechanisms.returnIntel.compassCostPerScout,
+      },
+      villageService: {
+        enabled: gameConfig.mechanisms.villageService.enabled,
+        restCostPerStamina: gameConfig.mechanisms.villageService.restCostPerStamina,
+        intelPrice: gameConfig.mechanisms.villageService.intelPrice,
+        intelTiles: gameConfig.mechanisms.villageService.intelTiles,
+        sellEnabled: gameConfig.mechanisms.villageService.sellEnabled,
+        sellPriceRatio: gameConfig.mechanisms.villageService.sellPriceRatio,
+        sellStepKg: gameConfig.mechanisms.villageService.sellStepKg,
+      },
+      surgeMining: {
+        enabled: gameConfig.mechanisms.surgeMining.enabled,
+        oncePerRun: gameConfig.mechanisms.surgeMining.oncePerRun,
+        yieldMultiplier: gameConfig.mechanisms.surgeMining.yieldMultiplier,
+        extraDays: gameConfig.mechanisms.surgeMining.extraDays,
+        used: state.stats.surgeMiningUses > 0,
+      },
+      emergencyRescue: {
+        enabled: gameConfig.mechanisms.emergencyRescue.enabled,
+        cost: gameConfig.mechanisms.emergencyRescue.cost,
+        extraDays: gameConfig.mechanisms.emergencyRescue.extraDays,
+        staminaBack: gameConfig.mechanisms.emergencyRescue.staminaBack,
+        triggerMarginDays: gameConfig.mechanisms.emergencyRescue.triggerMarginDays,
+        used: state.stats.emergencyRescues,
+        maxUses: gameConfig.mechanisms.emergencyRescue.maxUses,
+        /** 基于公开信息的返程天数估计（Bot 与真人用同一个数） */
+        expectedReturnDays: expectedReturnDays(state),
+      },
+      /** 村庄服务当前是否可用（由引擎的 ActionInfo 驱动，Bot 不必自己推断） */
+      villageHere: state.map.tiles[state.position]?.terrain === 'VILLAGE',
     },
     visitedOutbound: state.visitedOutbound,
     visitedReturn: state.visitedReturn,

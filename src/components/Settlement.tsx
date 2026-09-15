@@ -1,4 +1,4 @@
-import { computeSettlement, starLabel, gameConfig } from '../game';
+import { computeSettlement, starLabel } from '../game';
 import type { GameState } from '../game/types';
 
 interface Props {
@@ -23,12 +23,36 @@ export default function Settlement({ game, onRestart }: Props) {
     <div className="app-shell">
       <div className="settlement">
         <div className="panel">
-          <div className={`verdict ${win ? 'win' : 'lose'}`}>{win ? '成功返城' : '旅途终结'}</div>
-          <p className="verdict-sub">
-            {win
-              ? `你在第 ${v.daysUsed} 天（上限 ${v.maxDays} 天）带着宝石回到了城市。`
-              : (v.defeatReason ? DEFEAT_TEXT[v.defeatReason] : '旅途就此结束。')}
+          <div className={`verdict ${win ? 'win' : 'lose'}`} data-testid="verdict">
+            {v.verdictHeadline}
+          </div>
+          <p className="verdict-sub" data-testid="verdict-detail">
+            {win ? v.verdictDetail : (v.defeatReason ? DEFEAT_TEXT[v.defeatReason] : v.verdictDetail)}
           </p>
+
+          {/* v0.2.0 §46：远征结果与经济盈亏必须分开展示 */}
+          <div className="outcome-split" data-testid="outcome-split">
+            <div className={`outcome-card ${win ? 'ok' : 'bad'}`} data-testid="outcome-expedition">
+              <span className="oc-label">远征结果</span>
+              <span className="oc-value">{win ? '成功返城' : '未能返回'}</span>
+            </div>
+            <div
+              className={`outcome-card ${v.economicOutcome === 'PROFITABLE' ? 'ok' : v.economicOutcome === 'BREAK_EVEN' ? 'mid' : 'bad'}`}
+              data-testid="outcome-economic"
+            >
+              <span className="oc-label">经济结果</span>
+              <span className="oc-value">
+                {!win
+                  ? '远征失败（宝石无法出售）'
+                  : v.economicOutcome === 'PROFITABLE'
+                    ? '盈利'
+                    : v.economicOutcome === 'BREAK_EVEN'
+                      ? '保本'
+                      : '亏损'}
+              </span>
+            </div>
+          </div>
+
           <table className="settle-table">
             <tbody>
               <tr>
@@ -55,6 +79,25 @@ export default function Settlement({ game, onRestart }: Props) {
                 <td className="k">装备支出</td>
                 <td className="v">{v.equipmentSpent} 元</td>
               </tr>
+              {/* v0.2.0 机制支出（仅在机制生效时出现，避免给未启用机制的玩家看 0） */}
+              {v.villageServicesUsed > 0 && (
+                <tr data-testid="settle-village">
+                  <td className="k">村庄服务（{v.villageServicesUsed} 次）</td>
+                  <td className="v">-{v.villageServiceSpent} 元</td>
+                </tr>
+              )}
+              {v.emergencyRescues > 0 && (
+                <tr data-testid="settle-rescue">
+                  <td className="k">紧急求援（{v.emergencyRescues} 次）</td>
+                  <td className="v">-{v.emergencyRescueCost} 元</td>
+                </tr>
+              )}
+              {v.surgeMiningUses > 0 && (
+                <tr data-testid="settle-surge">
+                  <td className="k">深层采矿</td>
+                  <td className="v">额外 +{v.surgeMiningExtraKg} kg</td>
+                </tr>
+              )}
               {v.mineSlot && (
                 <tr>
                   <td className="k">进入矿区</td>
@@ -87,13 +130,17 @@ export default function Settlement({ game, onRestart }: Props) {
                 <td className="k">剩余现金</td>
                 <td className="v">{v.cashRemaining} 元</td>
               </tr>
-              <tr className="hl">
-                <td className="k">最终资产</td>
+              <tr>
+                <td className="k">初始资金</td>
+                <td className="v">{v.initialCash} 元</td>
+              </tr>
+              <tr>
+                <td className="k">最终现金</td>
                 <td className="v">{v.finalAssets} 元</td>
               </tr>
               <tr className="hl">
-                <td className="k">净收益（相对 {gameConfig.startCash} 元本金）</td>
-                <td className="v">
+                <td className="k">净利润</td>
+                <td className="v" data-testid="net-profit">
                   {v.netProfit >= 0 ? '+' : ''}
                   {v.netProfit} 元
                 </td>

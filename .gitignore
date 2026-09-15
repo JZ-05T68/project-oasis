@@ -25,3 +25,6 @@ reports/smoke/
 reports/**/raw/.tmp-*
 # Lab: baseline 逐局投影缓存（可被 runLab 重新生成，154MB+，不入库）
 reports/**/raw/base-*.json
+
+# WorkBuddy 工作区数据（memory 等），不入库
+.workbuddy/

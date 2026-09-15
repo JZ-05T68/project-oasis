@@ -103,7 +103,43 @@ export interface RunResult {
   equipmentSpent: number;
   cashRemaining: number;
   finalAssets: number;
+  /**
+   * 净利润 = 最终现金（含成功鉴定后的宝石折现）− 初始现金（2000）。
+   *
+   * Outcome 口径硬约束（§39）：盈利判定**固定**为 `finalCash > initialCash`，
+   * 不存在任何"虚拟残值"——剩余帐篷/指南针不计价（§2）。
+   * 因此 `netProfit > 0` 与 `PROFITABLE_RUN` 严格等价。
+   */
   netProfit: number;
+  /**
+   * 成功返城（Expedition Completion，§1）：
+   * 离开城市 → 抵达矿区 → 至少一次有效采矿 → 合法返城 → 耐力 > 0 → 未违反失败条件。
+   * 引擎里这些条件等价于 `status === 'VICTORY'`，但额外要求确实挖过矿
+   * （返城但从未采过矿不算一次「远征完成」）。
+   */
+  expeditionCompleted?: boolean;
+  /** 是否有过至少一次有效采矿（miningDays > 0） */
+  mined?: boolean;
+  /** v0.2.0 Outcome Lab：村庄服务使用次数（机制关闭时恒为 0） */
+  villageServicesUsed?: number;
+  /** v0.2.0 Outcome Lab：村庄服务总花费（元） */
+  villageServiceSpent?: number;
+  /** v0.2.0 Outcome Lab：因村庄服务恢复的耐力总量 */
+  villageStaminaRecovered?: number;
+  /** v0.2.0 Outcome Lab：村庄服务换取的返程情报次数 */
+  villageIntelBought?: number;
+  /** v0.2.0 Outcome Lab：应变采矿（深层/激进）使用次数 */
+  surgeMiningUses?: number;
+  /** v0.2.0 Outcome Lab：应变采矿额外获得的 kg */
+  surgeMiningExtraKg?: number;
+  /** v0.2.0 Outcome Lab：应变采矿额外消耗的天数 */
+  surgeMiningExtraDays?: number;
+  /** v0.2.0 Outcome Lab：紧急补给（花钱保命）使用次数 */
+  emergencyRescues?: number;
+  /** v0.2.0 Outcome Lab：紧急补给的总花费 */
+  emergencyRescueCost?: number;
+  /** v0.2.0 Outcome Lab：返程情报揭示的格数（有限情报机制） */
+  returnIntelTiles?: number;
 
   tentsBought: number;
   compassesBought: number;
@@ -130,6 +166,117 @@ export function summarizeEventChoice(choice: unknown): string {
   if (c.kind === 'MARKET') return String(c.action);
   if (c.kind === 'FORECAST_OFFER') return c.accept ? 'accept' : 'decline';
   return 'unknown';
+}
+
+/* ------------------------------------------------------------------ */
+/* Outcome 分层（v0.2.0：禁止把一切压缩成单一 winRate）                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 三类主要结局（§4/§5）+ 可选第四档高收益。
+ *
+ * 结算语义必须拆开：失败 ≠ 亏钱的远征。
+ *   FAILED            —— 没有成功返回城市（任何 defeatReason）
+ *   SURVIVED_UNPROFIT —— 成功返城，但 profit <= 0（含保本）
+ *   PROFITABLE        —— 成功返城，且 profit > 0
+ *   HIGH_PROFIT       —— 成功返城，且 profit >= 样本分布自动决定的阈值
+ */
+export interface OutcomeBreakdown {
+  /**
+   * Expedition Completion Rate（§1）= 成功返城率。**这才是「成功率」**。
+   * 分子：expeditionCompleted。分母：全部开局。
+   */
+  completionRate: number;
+  /**
+   * Overall Profitable Rate（§2）= 全部开局中 profit > 0 的比例。
+   * 注意：分母是**全部开局**，不是成功局。§3 明确要求。
+   */
+  profitableRate: number;
+  /**
+   * Profit Among Completed = profitableRate / completionRate。
+   * 健康参考 60~70%（§20）；若 ≈ completionRate（即 ≈100%）说明
+   * 活着回来几乎必赚钱，经济层没有独立出来（§18 扣分）。
+   */
+  profitAmongCompleted: number;
+  /** 三类结局占比（三者之和 = 100%） */
+  failedRate: number;
+  survivedUnprofitableRate: number;
+  /** 第四档（§6）：profit >= highProfitThreshold 的局占比 */
+  highProfitRate: number;
+  /** 自动判定的高收益阈值（按成功局的 p75 取值，非人工武断指定） */
+  highProfitThreshold: number;
+  /** 净利润分布（全部局；§52） */
+  profitAll: Distribution;
+  /** 净利润分布（仅成功返城局；§52 要求单独一份） */
+  profitCompleted: Distribution;
+  /** 平均净利润（仅成功局） */
+  avgProfitCompleted: number;
+  /** 平均净利润（全部局）= EV */
+  avgProfitAll: number;
+}
+
+export interface Distribution {
+  n: number;
+  min: number;
+  p10: number;
+  p25: number;
+  median: number;
+  p75: number;
+  p90: number;
+  max: number;
+  mean: number;
+}
+
+function dist(xs: number[]): Distribution {
+  const s = [...xs].sort((a, b) => a - b);
+  return {
+    n: s.length,
+    min: s.length ? s[0] : 0,
+    p10: percentile(s, 10),
+    p25: percentile(s, 25),
+    median: percentile(s, 50),
+    p75: percentile(s, 75),
+    p90: percentile(s, 90),
+    max: s.length ? s[s.length - 1] : 0,
+    mean: round2(mean(s)),
+  };
+}
+
+/**
+ * 计算 Outcome 分层。
+ *
+ * 硬约束（§39）：盈利定义固定 `finalCash > startCash`，不得通过抬高阈值作弊。
+ * 这里 `netProfit > 0` 就是它——因为 netProfit 已被定义为 finalCash − startCash。
+ */
+export function aggregateOutcome(results: RunResult[]): OutcomeBreakdown {
+  const n = Math.max(1, results.length);
+  const completed = results.filter((r) => (r.expeditionCompleted ?? r.status === 'VICTORY') && !r.error);
+  const completedIds = new Set(completed.map((r) => r.seed));
+  const profitable = results.filter((r) => completedIds.has(r.seed) && r.netProfit > 0);
+  const survivedUnprof = completed.filter((r) => r.netProfit <= 0);
+  const failed = results.filter((r) => !completedIds.has(r.seed));
+
+  // 高收益阈值由成功局分布自动决定（p75），不人工指定（§6）
+  const completedProfits = completed.map((r) => r.netProfit);
+  const sortedCompleted = [...completedProfits].sort((a, b) => a - b);
+  const highProfitThreshold = percentile(sortedCompleted, 75);
+  const highProfit = profitable.filter((r) => r.netProfit >= highProfitThreshold && r.netProfit > 0);
+
+  const completionRate = round2((completed.length / n) * 100);
+  const profitableRate = round2((profitable.length / n) * 100);
+  return {
+    completionRate,
+    profitableRate,
+    profitAmongCompleted: completionRate === 0 ? 0 : round2((profitableRate / completionRate) * 100),
+    failedRate: round2((failed.length / n) * 100),
+    survivedUnprofitableRate: round2((survivedUnprof.length / n) * 100),
+    highProfitRate: round2((highProfit.length / n) * 100),
+    highProfitThreshold,
+    profitAll: dist(results.map((r) => r.netProfit)),
+    profitCompleted: dist(completedProfits),
+    avgProfitCompleted: round2(mean(completedProfits)),
+    avgProfitAll: round2(mean(results.map((r) => r.netProfit))),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -202,6 +349,8 @@ export interface BotSummary {
   avgRouteScore: number | null;
   /** 天气预报专项聚合（v0.1.3） */
   forecast: ForecastSummary;
+  /** v0.2.0 Outcome 分层（取代单一 winRate 作为核心指标） */
+  outcome: OutcomeBreakdown;
   /** 村庄打工（市集 WORK） */
   avgVillageWorkDays: number;
   avgVillageWorkIncome: number;
@@ -328,6 +477,7 @@ export function aggregateBot(results: RunResult[]): BotSummary {
     mineVisits,
     avgRouteScore: scores.length ? round2(mean(scores)) : null,
     forecast: aggregateForecast(results),
+    outcome: aggregateOutcome(results),
     avgVillageWorkDays: round2(mean(results.map((r) => r.villageWorkDays ?? 0))),
     avgVillageWorkIncome: round2(mean(results.map((r) => r.villageWorkIncome ?? 0))),
   };

@@ -97,12 +97,21 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
   }
   const settlementDays = state.stats;
   const status: RunResult['status'] = state.status === 'VICTORY' ? 'VICTORY' : 'DEFEAT';
+  const mined = state.stats.miningDays > 0;
   return {
     seed,
     bot,
     status,
     defeatReason: state.defeatReason,
     error,
+    /**
+     * v0.2.0 Outcome 口径：EXPEDITION_COMPLETED 需要
+     * 「成功返城 + 至少一次有效采矿 + 耐力 > 0」。
+     * 引擎的 VICTORY 已经蕴含「合法返城 + 未违反失败条件 + 耐力 > 0」
+     * （耐力归零会立刻 defeat），这里只额外要求真的挖过矿。
+     */
+    expeditionCompleted: status === 'VICTORY' && mined && state.stamina > 0,
+    mined,
     mineId: state.mineEntranceId,
     mineSlot,
     endStamina: state.stamina,
@@ -145,6 +154,17 @@ function extractResult(state: GameState, bot: string, seed: string, error: strin
     miningAccidents: state.stats.miningAccidents ?? 0,
     miningAccidentLostKg: state.stats.miningAccidentLostKg ?? 0,
     loadPenaltyDays: state.stats.loadPenaltyDays ?? 0,
+    /* ---- v0.2.0 Outcome Lab 遥测（机制关闭时全部恒为 0） ---- */
+    villageServicesUsed: state.stats.villageServicesUsed ?? 0,
+    villageServiceSpent: state.stats.villageServiceSpent ?? 0,
+    villageStaminaRecovered: state.stats.villageStaminaRecovered ?? 0,
+    villageIntelBought: state.stats.villageIntelBought ?? 0,
+    surgeMiningUses: state.stats.surgeMiningUses ?? 0,
+    surgeMiningExtraKg: state.stats.surgeMiningExtraKg ?? 0,
+    surgeMiningExtraDays: state.stats.surgeMiningExtraDays ?? 0,
+    emergencyRescues: state.stats.emergencyRescues ?? 0,
+    emergencyRescueCost: state.stats.emergencyRescueCost ?? 0,
+    returnIntelTiles: state.stats.returnIntelTiles ?? 0,
     returnPath: [...state.visitedReturn],
     returnFirstStep: state.visitedReturn.filter((id) => id !== state.mineEntranceId)[0] ?? null,
     returnBfsFirstStep: bfsFirstReturnStep(state),

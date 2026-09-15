@@ -45,6 +45,33 @@ export default function TopBar({ game, onOpenRules }: { game: GameState; onOpenR
         <span className="label">预报次数</span>
         <span className="value">{game.forecastCharges}</span>
       </div>
+      {/* v0.2.0：新机制状态明确展示（§45 不依赖玩家猜隐藏数字） */}
+      {gameConfig.mechanisms.surgeMining.enabled && (
+        <div className="stat" title="深层采矿每局只有一次机会">
+          <span className="label">深层采矿</span>
+          <span className="value">{game.stats.surgeMiningUses > 0 ? '已使用' : '可用 ×1'}</span>
+        </div>
+      )}
+      {gameConfig.mechanisms.emergencyRescue.enabled && (
+        <div className="stat" title={`求援 ${gameConfig.mechanisms.emergencyRescue.cost} 元，每局最多 ${gameConfig.mechanisms.emergencyRescue.maxUses} 次`}>
+          <span className="label">求援</span>
+          <span className="value">
+            {game.stats.emergencyRescues >= gameConfig.mechanisms.emergencyRescue.maxUses ? '已用过' : '可用'}
+          </span>
+        </div>
+      )}
+      {gameConfig.mechanisms.returnIntel.enabled && game.stats.returnIntelTiles > 0 && (
+        <div className="stat" title="抵达矿区时揭示的返程候选格数量">
+          <span className="label">返程情报</span>
+          <span className="value">{game.stats.returnIntelTiles} 格</span>
+        </div>
+      )}
+      {gameConfig.mechanisms.villageService.enabled && (
+        <div className="stat" title="本局在村庄消费总额">
+          <span className="label">村庄支出</span>
+          <span className="value">{game.stats.villageServiceSpent} 元</span>
+        </div>
+      )}
       <div className="stat">
         <span className="label">Seed</span>
         <span className="value">{game.seed}</span>

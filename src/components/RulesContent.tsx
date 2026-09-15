@@ -71,6 +71,78 @@ function RulesContent() {
         载重降到 {gameConfig.mechanisms.loadReturn.thresholdKg}kg 以下就完全恢复正常速度。
         所以「再挖一天」不只是多花一天 —— 它还会让你的回家路变长。
       </p>
+      {gameConfig.mechanisms.returnIntel.enabled && (
+        <>
+          <h4>八之三、返程情报（v0.2.0 新机制）</h4>
+          <p>
+            远方的路不再全凭记忆：<b>抵达矿区</b>时，驼队会就地勘察，自动揭示返程方向的
+            <b>{gameConfig.mechanisms.returnIntel.coneCandidates} 格</b>候选路线地图（越靠近城市的格子越优先）。
+            {gameConfig.mechanisms.returnIntel.mode === 'compass' && (
+              <>
+                {' '}你还可以在野外<b>消耗 {gameConfig.mechanisms.returnIntel.compassCostPerScout} 个指南针</b>
+                <b>侦察前方 {gameConfig.mechanisms.returnIntel.scoutRadius} 格</b>（不消耗天数），
+                把未知地形提前看清楚。
+              </>
+            )}
+            {gameConfig.mechanisms.returnIntel.mode === 'survey1' && (
+              <> 你还可以主动<b>侦察以当前格为中心的 {gameConfig.mechanisms.returnIntel.scoutRadius} 格范围</b>，不消耗天数。</>
+            )}
+            情报只揭示地形与距离，<b>不会告诉你宝石价格</b>——路线更清楚，不代表更赚钱。
+          </p>
+        </>
+      )}
+      {gameConfig.mechanisms.villageService.enabled && (
+        <>
+          <h4>八之四、村庄服务（v0.2.0 新机制）</h4>
+          <p>
+            村庄不只是安全住宿点，还能<b>用现金换资源</b>（消费不影响宝石鉴定）：
+          </p>
+          <ul>
+            <li>
+              <b>休整</b>：每恢复 1 点耐力 <b>{gameConfig.mechanisms.villageService.restCostPerStamina} 元</b>，
+              单次最多恢复 {gameConfig.mechanisms.villageService.restMaxStamina} 点
+              {gameConfig.mechanisms.villageService.restCostsDay ? '，并消耗 1 天' : '，不消耗天数'}；
+            </li>
+            <li>
+              <b>买情报</b>：<b>{gameConfig.mechanisms.villageService.intelPrice} 元</b>揭示周边
+              {gameConfig.mechanisms.villageService.intelTiles} 格地形；
+            </li>
+            {gameConfig.mechanisms.villageService.sellEnabled && (
+              <li>
+                <b>卖宝石减负</b>：按鉴定价的 <b>{Math.round(gameConfig.mechanisms.villageService.sellPriceRatio * 100)}%</b> 就地折现，
+                每次最多卖 {gameConfig.mechanisms.villageService.sellStepKg}kg——提前落袋，但也放弃了返城后的全价。
+              </li>
+            )}
+          </ul>
+        </>
+      )}
+      {gameConfig.mechanisms.surgeMining.enabled && (
+        <>
+          <h4>八之五、深层采矿（v0.2.0 新机制）</h4>
+          <p>
+            在矿区可以冒险<b>突击深层矿脉</b>：一次产出提升到平日的
+            <b>{gameConfig.mechanisms.surgeMining.yieldMultiplier} 倍</b>，
+            代价是多花 <b>{gameConfig.mechanisms.surgeMining.extraDays} 天</b>
+            {gameConfig.mechanisms.surgeMining.staminaCost > 0 ? `、消耗 ${gameConfig.mechanisms.surgeMining.staminaCost} 点耐力` : ''}
+            {gameConfig.mechanisms.surgeMining.oncePerRun ? '。每局只能使用一次' : ''}。
+            挖得越猛，背得越重，回家的路就越难走。
+          </p>
+        </>
+      )}
+      {gameConfig.mechanisms.emergencyRescue.enabled && (
+        <>
+          <h4>八之六、紧急求援（v0.2.0 新机制）</h4>
+          <p>
+            当返程预计<b>剩余时间不足 {gameConfig.mechanisms.emergencyRescue.triggerMarginDays} 天</b>时，
+            可以呼叫商队<b>紧急求援</b>：花费 <b>{gameConfig.mechanisms.emergencyRescue.cost} 元</b>，
+            换回 <b>{gameConfig.mechanisms.emergencyRescue.extraDays} 天</b> 时间与
+            <b>{gameConfig.mechanisms.emergencyRescue.staminaBack} 点耐力</b>
+            {gameConfig.mechanisms.emergencyRescue.maxUses > 0 ? `（每局最多 ${gameConfig.mechanisms.emergencyRescue.maxUses} 次）` : ''}。
+            它能在你快要赶不上时间时把你捞回来，<b>但会把利润直接吃掉一大块</b>——
+            安全返城与赚钱，是两件需要分别考虑的事。
+          </p>
+        </>
+      )}
       <h4>九、天气预报</h4>
       <p>
         天气预报<b>使用现金购买</b>：每包 <b>{gameConfig.forecast.packPrice} 元</b>，

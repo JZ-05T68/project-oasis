@@ -80,11 +80,122 @@ export interface MineProductivityConfig {
   reveal: 'start' | 'arrival';
 }
 
+/* ------------------------------------------------------------------ */
+/* v0.2.0 Outcome & Mechanism Expansion Lab —— 四个新机制族            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Family E —— 返程有限情报（§10/§11）。
+ *
+ * 要解决的结构问题：返程规定不得重走去程普通格，而已探索格恰好只有去程走过的
+ * 那一批 → 返程每一步都踏进迷雾 → 任何「按地形选路」的机制都拿不到信息。
+ * 本轮**不**做全图揭露，只给一段刚好够做出第一次路线取舍的有限情报。
+ *
+ * mode：
+ *   'none'      —— 关闭
+ *   'survey1'   —— 抵达矿区时揭示矿区周围 1 格（上一轮 M13 的做法）
+ *   'returnCone'—— 抵达矿区时揭示「返程方向」2~3 个候选格（朝城市方向的候选）
+ *   'compass'   —— 消耗 1 个指南针可执行一次「侦察前方」（返程中主动使用）
+ */
+export interface ReturnIntelConfig {
+  enabled: boolean;
+  mode: 'survey1' | 'returnCone' | 'compass';
+  /** returnCone：揭示朝城市方向的前 k 个候选格（2~3） */
+  coneCandidates: number;
+  /** compass：单次侦察揭示的前方曼哈顿半径 */
+  scoutRadius: number;
+  /** compass：每次侦察需要消耗的指南针数 */
+  compassCostPerScout: number;
+  /** 是否允许在返程途中再次侦察 */
+  allowScoutDuringReturn: boolean;
+}
+
+/**
+ * Family F —— 村庄服务（§12/§13）。
+ *
+ * 村庄从「随机遭遇点」升级为**安全与经济交换节点**：花钱/花时间换耐力、
+ * 换情报、卖货减负。关键约束是**不能变成必停点**（>85% 遇村必停 = DOMINANT_VILLAGE_ACTION）。
+ *
+ * 单位定价刻意做成「比自己扛更贵」的补救手段，而不是免费午餐。
+ */
+export interface VillageServiceConfig {
+  enabled: boolean;
+  /** 花钱恢复 1 点耐力的单价（元） */
+  restCostPerStamina: number;
+  /** 单次最多恢复的耐力点数 */
+  restMaxStamina: number;
+  /** 是否消耗 1 天（若 false 则只花钱不花时间） */
+  restCostsDay: boolean;
+  /** 购买返程情报的价格（元） */
+  intelPrice: number;
+  /** 购买情报揭示的格数（返程方向候选） */
+  intelTiles: number;
+  /** 是否允许在村庄卖出宝石（减负换现金） */
+  sellEnabled: boolean;
+  /** 卖出价格 = 该矿宝石单价 × 该比例（刻意低于回城鉴定价） */
+  sellPriceRatio: number;
+  /** 单次卖出的 kg 粒度 */
+  sellStepKg: number;
+}
+
+/**
+ * Family G —— 矿区第二层决策（§14/§15）。
+ *
+ * 在既有负重机制之上加一层**一次性**的「深层采矿」机会：
+ * 单次产量更高，但附带额外天数与非线性代价。
+ * 必须一眼可理解——玩家不需要算期望值就能决定拿或不拿。
+ */
+export interface SurgeMiningConfig {
+  enabled: boolean;
+  /** 是否仅允许使用一次（一次性富矿机会） */
+  oncePerRun: boolean;
+  /** 深层采矿的产量倍率（相对当日正常产量） */
+  yieldMultiplier: number;
+  /** 深层采矿额外消耗的天数 */
+  extraDays: number;
+  /**
+   * 非线性代价：深层采矿会让「当日」额外损失的最大耐力点数
+   * （0 = 不碰耐力通道；刻意默认 0，避免与 §23 耐力锁定冲突）
+   */
+  staminaCost: number;
+  /** 深层采矿后是否提高当日事故概率（倍率；1 = 不变） */
+  accidentChanceMultiplier: number;
+}
+
+/**
+ * Family H —— 应急补救（§16/§17）。
+ *
+ * 让「做错一次」不必然等于死亡：可以在困局中付出很大代价把远征救回来。
+ * 目标是**提高 Completion 的同时降低 Profitability**，从而让「成功但亏损」
+ * 这一档真实存在（§5 的 SURVIVED_UNPROFIT）。
+ *
+ * 触发条件刻意做得很窄：只在「剩余时间不足以完成返程」或「耐力见底」时可用。
+ */
+export interface EmergencyRescueConfig {
+  enabled: boolean;
+  /** 求援价格（元） */
+  cost: number;
+  /** 求援买回的额外天数 */
+  extraDays: number;
+  /** 求援恢复的耐力点数 */
+  staminaBack: number;
+  /** 触发门槛：剩余天数 − 返程期望天数 < triggerMarginDays 才可使用 */
+  triggerMarginDays: number;
+  /** 每局最多使用次数 */
+  maxUses: number;
+  /** 求援是否直接丢弃部分宝石（驮队被腾空换取速度） */
+  cargoDroppedKg: number;
+}
+
 export interface MechanismConfig {
   diminishingYield: DiminishingYieldConfig;
   accidentRisk: AccidentRiskConfig;
   loadReturn: LoadReturnConfig;
   mineProductivity: MineProductivityConfig;
+  returnIntel: ReturnIntelConfig;
+  villageService: VillageServiceConfig;
+  surgeMining: SurgeMiningConfig;
+  emergencyRescue: EmergencyRescueConfig;
 }
 
 const baseMechanisms: MechanismConfig = {
@@ -174,6 +285,70 @@ const baseMechanisms: MechanismConfig = {
     scaleA: 1.3,
     scaleB: 0.7,
     reveal: 'start',
+  },
+
+  /* ---------- v0.2.0 Outcome Lab ---------- */
+
+  /**
+   * Family E —— 返程有限情报（v0.2.0 正式落盘，机制 #1）。
+   * Phase A：Δdecision 88%、Completion/EV 零扰动（信息≠收益，§8 B）；
+   * Phase C（EH1 × 5000 seeds）：Completion 69.98% 命中目标带中心。
+   * 落盘参数 = E1 档：returnCone 模式、揭示返程方向 3 个候选格。
+   */
+  returnIntel: {
+    enabled: true,
+    mode: 'returnCone',
+    coneCandidates: 3,
+    scoutRadius: 1,
+    compassCostPerScout: 1,
+    allowScoutDuringReturn: true,
+  },
+
+  /**
+   * Family F —— 村庄服务。
+   * 定价原则：比自己硬扛更贵，因此它是「补救手段」而不是「必经之路」。
+   */
+  villageService: {
+    enabled: false,
+    restCostPerStamina: 150,
+    restMaxStamina: 2,
+    restCostsDay: true,
+    intelPrice: 120,
+    intelTiles: 3,
+    sellEnabled: true,
+    sellPriceRatio: 0.6,
+    sellStepKg: 4,
+  },
+
+  /**
+   * Family G —— 矿区第二层决策（深层采矿）。
+   * 默认不碰耐力通道，避免与 §23「机制不得靠提高耐力伤害压胜率」冲突。
+   */
+  surgeMining: {
+    enabled: false,
+    oncePerRun: true,
+    yieldMultiplier: 3,
+    extraDays: 1,
+    staminaCost: 0,
+    accidentChanceMultiplier: 1,
+  },
+
+  /**
+   * Family H —— 应急补救（求援）（v0.2.0 正式落盘，机制 #2）。
+   * 只在「时间不够」或「耐力见底」时出现，价格刻意高昂
+   * → 提高 Completion、压低 Profitability，制造「成功但亏损」结局。
+   * Phase A：H1 档 Completion 71.56%（基线 80.00）、EV 1833（基线 2367 的 77%）；
+   * Phase C（EH1 × 5000 seeds）：Completion 69.98%。
+   * 落盘参数 = H1 档：400 元 / +5 天 / +3 耐力 / 提前 2 天可呼 / 每局 1 次。
+   */
+  emergencyRescue: {
+    enabled: true,
+    cost: 400,
+    extraDays: 5,
+    staminaBack: 3,
+    triggerMarginDays: 2,
+    maxUses: 1,
+    cargoDroppedKg: 0,
   },
 };
 

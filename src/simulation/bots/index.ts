@@ -9,6 +9,7 @@ import {
   type BaseBotConfig,
 } from './utils';
 import { MECHANISM_BOT_NAMES, mechanismBot } from './mechanismBots';
+import { OUTCOME_BOT_NAMES, outcomeBot } from './outcomeBots';
 
 /**
  * v0.1.2 策略 Bot（格子地图版，供 Smoke Simulation 使用）。
@@ -398,4 +399,6 @@ export const BOT_BY_NAME: Record<string, BotStrategy> = {
   // 机制专项 Bot（Autonomous Mechanism Evolution Lab）：
   // 不放进 ALL_BOTS，避免污染既有报告与"全部策略"清单。
   ...Object.fromEntries(MECHANISM_BOT_NAMES.map((n) => [n, mechanismBot(n)!])),
+  // v0.2.0 Outcome & Mechanism Expansion Lab 专项 Bot（同样不进 ALL_BOTS）
+  ...Object.fromEntries(OUTCOME_BOT_NAMES.map((n) => [n, outcomeBot(n)!])),
 };

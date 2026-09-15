@@ -255,6 +255,15 @@ export type GameActionType =
   | 'BUY_FORECAST_PACK'
   | 'USE_FORECAST'
   | 'DROP_GEMS'
+  /* ---- v0.2.0 Outcome Lab ---- */
+  /** 深层采矿：一次性富矿机会（Family G） */
+  | 'SURGE_MINE'
+  /** 侦察前方：消耗指南针换取返程情报（Family E compass 档） */
+  | 'SCOUT'
+  /** 村庄服务：花钱恢复耐力 / 买情报 / 卖货减负（Family F） */
+  | 'VILLAGE_SERVICE'
+  /** 应急补救：花钱求援（Family H） */
+  | 'EMERGENCY_RESCUE'
   | 'WAIT';
 
 export interface GameAction {
@@ -268,6 +277,8 @@ export interface GameAction {
   tentId?: TentId;
   /** DROP_GEMS：本次丢弃的宝石 kg（缺省 = 机制的 dropStepKg） */
   dropKg?: number;
+  /** VILLAGE_SERVICE：服务类型 */
+  service?: 'REST' | 'INTEL' | 'SELL';
 }
 
 /** 提供给 UI 的行动描述 */
@@ -307,6 +318,35 @@ export interface SettlementView {
   cashRemaining: number;
   finalAssets: number;
   netProfit: number;
+  /* ---- v0.2.0 Outcome 结算拆分（§5/§46/§47） ---- */
+  /**
+   * 远征结果（生存维度）：
+   *   'FAILED'            —— 未成功返回城市
+   *   'SURVIVED'          —— 成功返城（不等于赚钱）
+   */
+  expeditionOutcome: 'FAILED' | 'SURVIVED';
+  /**
+   * 经济结果（独立于生存维度）：
+   *   'PROFITABLE'  —— netProfit > 0
+   *   'BREAK_EVEN'  —— netProfit === 0
+   *   'UNPROFITABLE'—— netProfit < 0
+   * 失败局的宝石无法出售，因此经济结果必然是 UNPROFITABLE。
+   */
+  economicOutcome: 'PROFITABLE' | 'BREAK_EVEN' | 'UNPROFITABLE';
+  /** 初始资金（固定 2000；§39 盈利判定基准） */
+  initialCash: number;
+  /** 结算页副标题（§47 建议文案，集中在此便于 UI 与测试共用） */
+  verdictHeadline: string;
+  verdictDetail: string;
+  /* ---- v0.2.0 新机制结算遥测 ---- */
+  villageServiceSpent: number;
+  villageServicesUsed: number;
+  villageStaminaRecovered: number;
+  surgeMiningUses: number;
+  surgeMiningExtraKg: number;
+  emergencyRescues: number;
+  emergencyRescueCost: number;
+  returnIntelTiles: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -334,6 +374,27 @@ export interface GameStats {
   miningAccidentLostKg: number;
   /** 返程负重惩罚累计额外消耗的天数 */
   loadPenaltyDays: number;
+  /* ---- v0.2.0 Outcome & Mechanism Expansion Lab 遥测（机制关闭时恒为 0） ---- */
+  /** 村庄服务使用次数（恢复耐力 / 买情报 / 卖货等，按服务档位计次） */
+  villageServicesUsed: number;
+  /** 村庄服务累计花费（元） */
+  villageServiceSpent: number;
+  /** 村庄服务累计恢复的耐力点数 */
+  villageStaminaRecovered: number;
+  /** 在村庄花钱购买返程情报的次数 */
+  villageIntelBought: number;
+  /** 应变采矿（深层/激进）使用次数 */
+  surgeMiningUses: number;
+  /** 应变采矿累计额外获得的宝石（kg） */
+  surgeMiningExtraKg: number;
+  /** 应变采矿累计额外消耗的天数 */
+  surgeMiningExtraDays: number;
+  /** 紧急补给（花钱保命）使用次数 */
+  emergencyRescues: number;
+  /** 紧急补给累计花费（元） */
+  emergencyRescueCost: number;
+  /** 返程情报机制累计揭示的格数 */
+  returnIntelTiles: number;
 }
 
 export interface GameState {

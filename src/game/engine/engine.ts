@@ -34,6 +34,18 @@ import {
   rollMiningAccident,
   yieldForMiningDay,
 } from '../rules/mining';
+import {
+  applyArrivalIntel,
+  buyVillageIntel,
+  canEmergencyRescue,
+  canScout,
+  canSurgeMine,
+  expectedReturnDays,
+  scoutAhead,
+  surgeYield,
+  villageSellUnitPrice,
+  villageServices,
+} from '../rules/outcome';
 import type { GameMap } from '../types';
 
 export { computeSettlement } from '../rules/settlement';
@@ -309,6 +321,16 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
       miningAccidents: 0,
       miningAccidentLostKg: 0,
       loadPenaltyDays: 0,
+      villageServicesUsed: 0,
+      villageServiceSpent: 0,
+      villageStaminaRecovered: 0,
+      villageIntelBought: 0,
+      surgeMiningUses: 0,
+      surgeMiningExtraKg: 0,
+      surgeMiningExtraDays: 0,
+      emergencyRescues: 0,
+      emergencyRescueCost: 0,
+      returnIntelTiles: 0,
     },
     log: [],
   };
@@ -474,6 +496,26 @@ function enterMine(s: GameState): void {
         kind: 'good',
         force: true,
       });
+    }
+  }
+
+  /* ---------- v0.2.0 Family E：返程有限情报（抵达矿区时揭示） ---------- */
+  {
+    const intelCfg = gameConfig.mechanisms.returnIntel;
+    if (intelCfg.enabled && intelCfg.mode !== 'compass') {
+      const n = applyArrivalIntel(s, s.position);
+      if (n > 0) {
+        recordResult(s, {
+          title: intelCfg.mode === 'survey1' ? '矿区勘察' : '返程路线情报',
+          message:
+            intelCfg.mode === 'survey1'
+              ? `你勘察了矿区周围的地形，摸清了 ${n} 格。`
+              : `你向当地商队打听了回城的路线，摸清了朝城市方向的 ${n} 个岔路口地形——返程第一步终于不再是猜谜。`,
+          kind: 'good',
+          force: true,
+        });
+        s.stats.returnIntelTiles += n;
+      }
     }
   }
 
@@ -791,6 +833,79 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     });
   }
 
+  /* ---------- v0.2.0 Outcome Lab：四个新机制族的可用行动 ---------- */
+
+  // Family G —— 深层采矿（矿区第二层决策，一次性富矿机会）
+  if (canSurgeMine(state)) {
+    const base = yieldForMiningDay(state.stats.miningDays + 1, state.map.tiles[state.position]?.mineSlot);
+    const cfg = gameConfig.mechanisms.surgeMining;
+    const y = surgeYield(base);
+    actions.push({
+      action: { type: 'SURGE_MINE' },
+      label: `深层采矿（+${y}kg 宝石，多耗 ${cfg.extraDays} 天）`,
+      hint: `一次性机会：深入矿道能一次敲下 ${y}kg（普通采矿只有 ${base}kg），但要额外多花 ${cfg.extraDays} 天。只有一次机会。`,
+    });
+  }
+
+  // Family E(compass) —— 消耗指南针侦察前方
+  if (gameConfig.mechanisms.returnIntel.enabled && gameConfig.mechanisms.returnIntel.mode === 'compass') {
+    const cfg = gameConfig.mechanisms.returnIntel;
+    const ok = canScout(state);
+    actions.push({
+      action: { type: 'SCOUT' },
+      label: `侦察前方（消耗 ${cfg.compassCostPerScout} 个指南针）`,
+      hint: `揭示当前位置周围 ${cfg.scoutRadius} 格的地形，让返程路线的地形取舍第一次有信息可用。`,
+      disabled: !ok,
+      disabledReason: !ok ? `指南针不足（需要 ${cfg.compassCostPerScout} 个）` : undefined,
+    });
+  }
+
+  // Family F —— 村庄服务（仅村庄；城市不提供）
+  if (tile.terrain === 'VILLAGE') {
+    const cfg = gameConfig.mechanisms.villageService;
+    for (const svc of villageServices(state)) {
+      const cashOk = state.cash >= svc.cost;
+      const sellUnit = svc.kind === 'SELL' ? villageSellUnitPrice(state) : 0;
+      const kg = Math.min(cfg.sellStepKg, state.gemsKg);
+      actions.push({
+        action: { type: 'VILLAGE_SERVICE', service: svc.kind },
+        label: svc.label,
+        price: svc.cost,
+        hint: svc.kind === 'SELL'
+          ? `立刻到手 ${Math.round(kg * sellUnit)} 元，但回城鉴定价是它的 ${(1 / Math.max(0.01, cfg.sellPriceRatio)).toFixed(1)} 倍——这是止损，不是赚钱。`
+          : svc.kind === 'INTEL'
+            ? '村庄商人熟悉商道：揭示朝城市方向的部分地形。'
+            : '在村庄里好好歇一口气（比野外宿营安全，但要花钱）。',
+        disabled: !svc.enabled || !cashOk,
+        disabledReason: !svc.enabled
+          ? (svc.kind === 'REST' ? '耐力已满' : '没有可卖的宝石')
+          : !cashOk ? `现金不足（需要 ${svc.cost} 元）` : undefined,
+      });
+    }
+  }
+
+  // Family H —— 应急补救（求援）
+  if (gameConfig.mechanisms.emergencyRescue.enabled) {
+    const cfg = gameConfig.mechanisms.emergencyRescue;
+    const eta = expectedReturnDays(state);
+    const ok = canEmergencyRescue(state, eta);
+    const daysLeft = state.maxDays - state.daysUsed;
+    actions.push({
+      action: { type: 'EMERGENCY_RESCUE' },
+      label: `紧急求援（${cfg.cost} 元，换 ${cfg.extraDays} 天 + ${cfg.staminaBack} 耐力）`,
+      price: cfg.cost,
+      hint: '走投无路时的最后一根稻草：雇佣驼队把你带回去。它救的是命，不是钱包。',
+      disabled: !ok,
+      disabledReason: !ok
+        ? (state.cash < cfg.cost
+            ? `现金不足（需要 ${cfg.cost} 元）`
+            : state.stats.emergencyRescues >= cfg.maxUses
+              ? '本局已经求援过了'
+              : `还没到绝境（剩余 ${Math.max(0, daysLeft)} 天，返程估计需要 ${eta} 天）`)
+        : undefined,
+    });
+  }
+
   // 原地停留（仅在尚未提供过 WAIT 的场合补充：野外 OUTBOUND/RETURN）
   if (
     (state.phase === 'OUTBOUND' || state.phase === 'RETURN') &&
@@ -798,7 +913,6 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
   ) {
     addWait();
   }
-
   return actions;
 }
 
@@ -1038,6 +1152,170 @@ export function performAction(state: GameState, action: GameAction): GameState {
         pushLog(s, 'good', `载重已降到阈值（${gameConfig.mechanisms.loadReturn.thresholdKg}kg）以下，穿越沙漠不再额外耗时。`);
       }
       return s; // 丢弃不消耗时间
+    }
+    case 'SURGE_MINE': {
+      // Family G —— 深层采矿：一次性机会，产量高但多耗天数。
+      // 设计约束：0 个新增状态变量（复用 stats.surgeMiningUses）、1 个公式、1 个按钮。
+      if (!canSurgeMine(s)) throw new GameError('SURGE_DISABLED', '当前不能进行深层采矿');
+      const cfg = gameConfig.mechanisms.surgeMining;
+      const dayIndex = s.stats.miningDays + 1;
+      const slot = s.map.tiles[s.position]?.mineSlot;
+      const base = yieldForMiningDay(dayIndex, slot);
+      const gained = surgeYield(base);
+      recordResult(
+        s,
+        {
+          title: '深层采矿',
+          message: `你带着驮队深入矿道，敲下了一大块矿脉：${gained}kg！（普通采矿只有 ${base}kg）`,
+          kind: 'good',
+          logText: `深层采矿：一次获得 ${gained}kg 宝石（普通 ${base}kg），额外多耗 ${cfg.extraDays} 天。`,
+        },
+        () => {
+          if (!addDays(s, 1)) return;
+          s.stats.miningDays += 1;
+          s.gemsKg = round2(s.gemsKg + gained);
+          s.stats.surgeMiningUses += 1;
+          s.stats.surgeMiningExtraKg = round2(s.stats.surgeMiningExtraKg + (gained - base));
+          if (cfg.extraDays > 0) {
+            addDays(s, cfg.extraDays);
+            s.stats.surgeMiningExtraDays += cfg.extraDays;
+          }
+          if (cfg.staminaCost > 0) {
+            applyStaminaLoss(s, cfg.staminaCost);
+          }
+        },
+      );
+      finalizeTurn(s);
+      return s;
+    }
+    case 'SCOUT': {
+      // Family E(compass) —— 消耗指南针侦察前方地形
+      if (!canScout(s)) throw new GameError('SCOUT_DISABLED', '当前无法侦察（指南针不足或机制未开启）');
+      const revealed = scoutAhead(s);
+      const cfg = gameConfig.mechanisms.returnIntel;
+      recordResult(
+        s,
+        {
+          title: '侦察前方',
+          message:
+            revealed > 0
+              ? `你派斥候先行探路，摸清了前方 ${revealed} 格的地形。`
+              : '你派斥候探路，但前方地形你早已了然。',
+          kind: revealed > 0 ? 'good' : 'info',
+          logText: `消耗 ${cfg.compassCostPerScout} 个指南针侦察前方，新揭示 ${Math.max(0, revealed)} 格地形。`,
+          force: true,
+        },
+        () => {
+          s.stats.returnIntelTiles += Math.max(0, revealed);
+        },
+      );
+      return s; // 侦察不消耗时间
+    }
+    case 'VILLAGE_SERVICE': {
+      // Family F —— 村庄服务（恢复耐力 / 买情报 / 卖货减负）
+      const cfg = gameConfig.mechanisms.villageService;
+      if (!cfg.enabled) throw new GameError('VILLAGE_DISABLED', '村庄服务未开启');
+      if (tile.terrain !== 'VILLAGE') throw new GameError('NOT_VILLAGE', '只有村庄提供这些服务');
+      const kind = action.service;
+      if (!kind) throw new GameError('BAD_ACTION', '未指定村庄服务类型');
+
+      if (kind === 'REST') {
+        if (s.stamina >= gameConfig.maxStamina) throw new GameError('STAMINA_FULL', '耐力已满');
+        if (s.cash < cfg.restCostPerStamina) throw new GameError('NO_CASH', '现金不足');
+        recordResult(
+          s,
+          {
+            title: '村庄歇脚',
+            message: `你在村庄的客栈里好好休息了一天，恢复了 1 点耐力（花费 ${cfg.restCostPerStamina} 元）。`,
+            kind: 'good',
+            logText: `村庄歇脚：-${cfg.restCostPerStamina} 元，+1 耐力${cfg.restCostsDay ? '，消耗 1 天' : ''}。`,
+          },
+          () => {
+            s.cash -= cfg.restCostPerStamina;
+            s.stats.villageServiceSpent += cfg.restCostPerStamina;
+            s.stats.villageServicesUsed += 1;
+            s.stats.villageStaminaRecovered += 1;
+            s.stamina = Math.min(gameConfig.maxStamina, s.stamina + 1);
+            if (cfg.restCostsDay) addDays(s, 1);
+          },
+        );
+      } else if (kind === 'INTEL') {
+        if (s.cash < cfg.intelPrice) throw new GameError('NO_CASH', '现金不足');
+        const revealed = buyVillageIntel(s);
+        recordResult(
+          s,
+          {
+            title: '村庄情报',
+            message:
+              revealed > 0
+                ? `村庄商人给你画了一张草图，标出了朝城市方向的 ${revealed} 格地形（花费 ${cfg.intelPrice} 元）。`
+                : `村庄商人和你聊了半天，但朝城市方向的地形你都已经知道了（花费 ${cfg.intelPrice} 元）。`,
+            kind: revealed > 0 ? 'good' : 'info',
+            logText: `村庄情报：-${cfg.intelPrice} 元，新揭示 ${Math.max(0, revealed)} 格返程地形。`,
+            force: true,
+          },
+          () => {
+            s.cash -= cfg.intelPrice;
+            s.stats.villageServiceSpent += cfg.intelPrice;
+            s.stats.villageServicesUsed += 1;
+            s.stats.returnIntelTiles += Math.max(0, revealed);
+          },
+        );
+      } else {
+        // SELL：卖出部分宝石减负（远低于回城鉴定价 → 是止损不是赚钱）
+        if (!cfg.sellEnabled) throw new GameError('SELL_DISABLED', '当前不允许在村庄卖货');
+        if (s.gemsKg <= 0) throw new GameError('NO_CARGO', '没有可卖的宝石');
+        const kg = Math.min(cfg.sellStepKg, s.gemsKg);
+        const unit = villageSellUnitPrice(s);
+        const income = Math.round(kg * unit);
+        recordResult(
+          s,
+          {
+            title: '村庄卖货',
+            message: `你把 ${kg}kg 宝石赊给了村庄商人，换到 ${income} 元现钱（回城鉴定价是它的 ${(1 / Math.max(0.01, cfg.sellPriceRatio)).toFixed(1)} 倍）。`,
+            kind: 'info',
+            logText: `村庄卖货：卖出 ${kg}kg，+${income} 元（单价 ${unit}，仅为鉴定价的 ${Math.round(cfg.sellPriceRatio * 100)}%）。`,
+            force: true,
+          },
+          () => {
+            s.gemsKg = round2(s.gemsKg - kg);
+            s.cash += income;
+            s.stats.villageServicesUsed += 1;
+          },
+        );
+      }
+      finalizeTurn(s);
+      return s;
+    }
+    case 'EMERGENCY_RESCUE': {
+      // Family H —— 应急补救：花钱买天数与耐力（只在绝境可用）
+      const cfg = gameConfig.mechanisms.emergencyRescue;
+      const eta = expectedReturnDays(s);
+      if (!canEmergencyRescue(s, eta)) throw new GameError('RESCUE_DISABLED', '当前不满足求援条件');
+      recordResult(
+        s,
+        {
+          title: '紧急求援',
+          message: `你花 ${cfg.cost} 元雇佣了一支驼队，他们带来 ${cfg.extraDays} 天的补给和 ${cfg.staminaBack} 点耐力。命保住了，钱没了。`,
+          kind: 'info',
+          logText: `紧急求援：-${cfg.cost} 元，+${cfg.extraDays} 天，+${cfg.staminaBack} 耐力。`,
+          force: true,
+        },
+        () => {
+          s.cash -= cfg.cost;
+          s.stats.emergencyRescues += 1;
+          s.stats.emergencyRescueCost += cfg.cost;
+          s.stamina = Math.min(gameConfig.maxStamina, s.stamina + cfg.staminaBack);
+          if (cfg.cargoDroppedKg > 0) {
+            const drop = Math.min(cfg.cargoDroppedKg, s.gemsKg);
+            s.gemsKg = round2(s.gemsKg - drop);
+            s.stats.droppedKg = round2(s.stats.droppedKg + drop);
+          }
+          if (cfg.extraDays > 0) addDays(s, cfg.extraDays);
+        },
+      );
+      finalizeTurn(s);
+      return s;
     }
     case 'WAIT': {
       if (s.phase !== 'OUTBOUND' && s.phase !== 'RETURN' && s.phase !== 'MINING') {
