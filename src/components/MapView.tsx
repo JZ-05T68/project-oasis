@@ -38,11 +38,16 @@ const TERRAIN_NAMES: Record<TerrainType, string> = {
  * v0.1.2：CSS Grid 格子地图。
  *
  * v0.1.2b 布局修复：地图尺寸不再有任何固定值 / 旧 10×12 遗留值。
- *  - 列数、行数全部从 gameConfig.map 派生（game.map.rows / game.map.cols）；
- *  - 格子用 aspect-ratio 1/1 保持接近正方形；
- *  - 地图宽度 = min(容器宽度, 可用高度 × 列数 / 行数)，因此整张地图永远完整可见，
- *    并在自己的主游戏区域内水平居中（右侧日志宽度变化不会牵动地图中心）；
- *  - 原来 min-width:420px（12 列 × 34px 的硬编码）是左侧留白/偏移的根因，已彻底移除。
+ *
+ * v0.1.4 轨迹可读性修复（Human Playtest 确认问题）：
+ *  原先只有「去程 / 返程」两种边框色，且**完全靠颜色**区分，导致：
+ *   1. 看不出哪些去程格在返程已经禁入；
+ *   2. 色觉障碍 / 小尺寸下三种边框几乎无法分辨；
+ *   3. 没有图例解释这些边框。
+ *  现在的规则：
+ *   - 轨迹用**角标文字**（去 / 回）+ 边框图案共同表达，不依赖颜色；
+ *   - 返程阶段把「去程走过、返程不能再进」的格子标上 × 禁入角标；
+ *   - 轨迹只改边框 / 角标 / 极淡的斜纹 overlay，**地形底色与地形字完全保留**。
  */
 export default function MapView({ game, onMove }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -54,6 +59,30 @@ export default function MapView({ game, onMove }: Props) {
       : new Set<TileId>();
   const outboundSet = new Set(game.visitedOutbound);
   const returnSet = new Set(game.visitedReturn);
+
+  /** 返程规则是否已经生效（矿区阶段就开始生效：收手那一刻起，去程足迹就是禁入区） */
+  const returnRuleActive = game.phase === 'RETURN' || game.phase === 'MINING';
+
+  /**
+   * 返程禁入集合 —— 与引擎 `getLegalMoves` 的 RETURN 分支逐条对齐：
+   *   去程 ∪ 返程已用普通格（城市与**当前矿区**豁免，另一个矿区禁入）。
+   * 一定要和引擎一致，否则玩家会看到「标了禁入其实能走」或反之。
+   */
+  const forbiddenReturn = new Set<TileId>();
+  if (returnRuleActive) {
+    const isNormal = (id: TileId) => {
+      const t = game.map.tiles[id]?.terrain;
+      return t !== 'CITY' && t !== 'MINE';
+    };
+    for (const id of [...game.visitedOutbound, ...game.visitedReturn]) {
+      if (isNormal(id)) forbiddenReturn.add(id);
+    }
+    forbiddenReturn.delete(game.map.cityId);
+    if (game.mineEntranceId) forbiddenReturn.delete(game.mineEntranceId);
+    for (const m of game.map.mines) {
+      if (m.tileId !== game.mineEntranceId) forbiddenReturn.add(m.tileId);
+    }
+  }
 
   const tiles = Object.values(game.map.tiles).sort((a, b) =>
     a.row === b.row ? a.col - b.col : a.row - b.row,
@@ -98,39 +127,65 @@ export default function MapView({ game, onMove }: Props) {
             const isCurrent = game.position === t.id;
             const onOut = outboundSet.has(t.id);
             const onRet = returnSet.has(t.id);
+            const locked = returnRuleActive && forbiddenReturn.has(t.id);
             const glyph = isKnown ? TERRAIN_GLYPH[t.terrain] : '?';
             const style: React.CSSProperties = {};
             if (isKnown) style.background = TERRAIN_COLORS[t.terrain];
             const mine = t.terrain === 'MINE' && t.mineSlot ? t.mineSlot : undefined;
+            // 轨迹角标：去 / 回（不靠颜色也能读）
+            const trail = onRet ? 'ret' : onOut ? 'out' : 'none';
+            const trailBadge = onRet ? '回' : onOut ? '去' : '';
+            const trailName = onRet ? '返程轨迹' : onOut ? '去程轨迹' : '';
             return (
               <button
                 key={t.id}
                 type="button"
                 data-tileid={t.id}
+                data-trail={trail}
+                data-locked={locked ? '1' : '0'}
+                data-current={isCurrent ? '1' : '0'}
+                data-legal={isLegal ? '1' : '0'}
                 className={[
                   'grid-tile',
                   isLegal ? 'clickable' : '',
                   isCurrent ? 'current' : '',
                   onOut ? 'on-out' : '',
                   onRet ? 'on-ret' : '',
+                  locked ? 'locked' : '',
                   isKnown ? '' : 'unknown',
                 ].join(' ')}
                 style={style}
                 onClick={isLegal ? () => onMove(t.id) : undefined}
                 disabled={!isLegal}
                 title={
-                  isKnown
-                    ? `(${t.row},${t.col}) ${TERRAIN_NAMES[t.terrain]}${mine ? ` Mine ${mine} · 价格返城鉴定` : ''}`
-                    : `(${t.row},${t.col}) 未知`
+                  [
+                    `(${t.row},${t.col})`,
+                    isKnown ? TERRAIN_NAMES[t.terrain] : '未知',
+                    mine ? `Mine ${mine} · 价格返城鉴定` : '',
+                    trailName,
+                    locked ? '返程禁入（已走过）' : '',
+                    isLegal ? '可以前往' : '',
+                    isCurrent ? '当前位置' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
                 }
               >
+                {trailBadge && <span className="tile-trail-badge" aria-hidden="true">{trailBadge}</span>}
+                {locked && (
+                  <span className="tile-locked-badge" aria-hidden="true">
+                    ×
+                  </span>
+                )}
                 <span className="grid-glyph">{glyph}</span>
               </button>
             );
           })}
         </div>
       </div>
-      <div className="map-legend">
+
+      {/* 图例：地形 + 轨迹 + 禁入 + 当前，顺序与玩家阅读地图的顺序一致 */}
+      <div className="map-legend" data-testid="map-legend">
         {(['CITY', 'DESERT', 'GRASS', 'VILLAGE', 'OASIS', 'MINE'] as TerrainType[]).map((t) => (
           <span className="legend-item" key={t}>
             <span className="legend-swatch" style={{ background: TERRAIN_COLORS[t] }} />
@@ -138,16 +193,28 @@ export default function MapView({ game, onMove }: Props) {
           </span>
         ))}
         <span className="legend-item">
-          <span className="legend-swatch" style={{ background: '#6b6355' }} />未知 ?
+          <span className="legend-swatch" style={{ background: '#3a3831' }} />
+          未知 ?
         </span>
         <span className="legend-item">
-          <span className="legend-swatch" style={{ background: 'none', border: '2px dashed #7cb46b' }} />可前往
+          <span className="legend-mark legend-current">●</span>
+          当前
         </span>
         <span className="legend-item">
-          <span className="legend-swatch" style={{ background: 'none', border: '2px solid #d9a94e' }} />去程足迹
+          <span className="legend-mark legend-out">去</span>
+          去程轨迹
         </span>
         <span className="legend-item">
-          <span className="legend-swatch" style={{ background: 'none', border: '2px dashed #5d9dd8' }} />返程足迹
+          <span className="legend-mark legend-ret">回</span>
+          返程轨迹
+        </span>
+        <span className="legend-item">
+          <span className="legend-mark legend-locked">×</span>
+          返程禁入（已走过）
+        </span>
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: 'none', border: '2px dashed #7cb46b' }} />
+          当前可走
         </span>
       </div>
     </div>

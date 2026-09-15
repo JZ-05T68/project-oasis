@@ -204,6 +204,14 @@ if [ "$SCENE_ARG" = "forecast" ]; then
   run_forecast
   exit 0
 fi
+if [ "$SCENE_ARG" = "fullrun" ]; then
+  run_scene fullrun
+  exit 0
+fi
+if [ "$SCENE_ARG" = "trail" ]; then
+  run_scene trail
+  exit 0
+fi
 if [ "$SCENE_ARG" = "cashforecast" ]; then
   run_cashforecast
   exit 0

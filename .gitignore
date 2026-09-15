@@ -22,4 +22,6 @@ Thumbs.db
 reports/.tmp/
 reports/.econ-tmp/
 reports/smoke/
-reports/**/raw/.tmp-*/
+reports/**/raw/.tmp-*
+# Lab: baseline 逐局投影缓存（可被 runLab 重新生成，154MB+，不入库）
+reports/**/raw/base-*.json

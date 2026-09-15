@@ -22,8 +22,9 @@
     const m = b ? (b.textContent || '').match(/(\d+)\s*元/) : null;
     return m ? Number(m[1]) : NaN;
   };
-  const TENT_PRICE = priceOf('购买帐篷');
-  const COMPASS_PRICE = priceOf('购买指南针');
+  // 注意：必须等进入游戏后按钮才存在，因此在 scene() 内重新读取（否则读到 NaN）
+  let TENT_PRICE = NaN;
+  let COMPASS_PRICE = NaN;
 
   function logText() {
     return $$('.log-list li')
@@ -46,6 +47,9 @@
   const scene = async () => {
     const ready = await O.gotoGame('audit-0', { tents: 0, compasses: 0 });
     assert('feedback · 进入游戏', ready);
+    TENT_PRICE = priceOf('购买帐篷');
+    COMPASS_PRICE = priceOf('购买指南针');
+    assert('feedback · 能从按钮文案读到帐篷/指南针单价', Number.isFinite(TENT_PRICE) && Number.isFinite(COMPASS_PRICE), 'tent=' + TENT_PRICE + ' compass=' + COMPASS_PRICE);
     assert('feedback · 开局没有任何结算弹窗', !O.resultEl(), String(O.modalKind()));
 
     /* ---------- 1. 购买帐篷：金钱 + 新帐篷合成同一个结果 ---------- */
@@ -80,7 +84,18 @@
     await auditClick('反馈 · 购买天气预报包', O.byTextOne('button', '购买天气预报包'), 'CHANGE', { keepResult: true });
     info = O.resultInfo();
     assert('反馈 · 天气预报包只有一个综合结果弹窗', !!info && info.title === '天气预报已购买', info ? info.title : '没有弹窗');
-    assertFlow('反馈 · 最大旅程天数 42 → 41', info, '最大旅程天数', '42', '41');
+    // v0.1.3 现金计价机制：购买天气预报包**不再改变最大旅程天数**
+    assert(
+      '反馈 · 购买预报不改变最大旅程天数（v0.1.3 现金计价）',
+      !!info && !info.changes.some((c) => c.label === '最大旅程天数'),
+      info ? JSON.stringify(info.changes) : '没有弹窗',
+    );
+    const moneyRow = info ? info.changes.filter((c) => c.label === '金钱')[0] : null;
+    assert(
+      '反馈 · 购买预报只扣现金（金额 = 购买前 - 预报单价）',
+      !!moneyRow && Number(moneyRow.after.replace('¥', '')) === Number(moneyRow.before.replace('¥', '')) - 300,
+      moneyRow ? moneyRow.before + ' → ' + moneyRow.after : '缺少金钱变化行',
+    );
     assertFlow('反馈 · 天气预报次数 0 → 2（含自动使用 1 次）', info, '天气预报次数', '0', '2');
     assert(
       '反馈 · 结果弹窗与预报弹窗不叠加（先结果后预报）',

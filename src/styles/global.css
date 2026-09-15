@@ -215,12 +215,46 @@ button {
   z-index: 3;
 }
 
+/*
+ * 轨迹样式（v0.1.4）：**不覆盖地形底色**，只改边框图案 + 角标 + 极淡斜纹。
+ * 三种信息必须能同时读出：① 地形是什么 ② 轨迹属于去程还是返程 ③ 返程能不能进。
+ * 因此：地形 → 底色 + 中心地形字；轨迹 → 角标文字（去/回）+ 边框线型；禁入 → 红框 + × 角标。
+ */
 .grid-tile.on-out {
   border: 2px solid #d9a94e;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(217, 169, 78, 0.22) 0 3px,
+    rgba(217, 169, 78, 0) 3px 7px
+  );
 }
 
 .grid-tile.on-ret {
   border: 2px dashed #5d9dd8;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(93, 157, 216, 0.22) 0 3px,
+    rgba(93, 157, 216, 0) 3px 7px
+  );
+}
+
+/* 返程禁入：去程走过、返程不能再进入 —— 必须一眼看出，且不依赖颜色 */
+.grid-tile.locked {
+  border-color: #b3402f;
+  box-shadow: 0 0 0 1px #b3402f inset;
+}
+
+.grid-tile.locked::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 3px;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(179, 64, 47, 0.28) 0 2px,
+    rgba(179, 64, 47, 0) 2px 6px
+  );
+  pointer-events: none;
 }
 
 .grid-tile.current {
@@ -229,6 +263,38 @@ button {
 
 .grid-glyph {
   line-height: 1;
+  position: relative;
+  z-index: 1;
+}
+
+/* 轨迹角标：左上角「去 / 回」 */
+.tile-trail-badge {
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  z-index: 2;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 800;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: rgba(20, 27, 24, 0.82);
+  color: #f6f1e4;
+  pointer-events: none;
+}
+
+/* 禁入角标：右上角「×」，与角标文字共同保证不依赖颜色 */
+.tile-locked-badge {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  z-index: 2;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 900;
+  color: #ff5b3d;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
 }
 
 .grid-price {
@@ -259,6 +325,41 @@ button {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+/* 轨迹类图例标记：形状/文字本身就是信息载体，不依赖颜色 */
+.legend-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.legend-mark.legend-current {
+  color: #f6f1e4;
+  background: #141b18;
+}
+
+.legend-mark.legend-out {
+  color: #4a3410;
+  background: #f0d9a8;
+  border: 1px solid #d9a94e;
+}
+
+.legend-mark.legend-ret {
+  color: #10243a;
+  background: #cfe3f7;
+  border: 1px dashed #5d9dd8;
+}
+
+.legend-mark.legend-locked {
+  color: #fff;
+  background: #b3402f;
 }
 
 .legend-swatch {

@@ -1,0 +1,11 @@
+=== scene=fullrun viewport=1366x768 url=http://127.0.0.1:5199/ ===
+✓ Project Oasis · 绿洲计划
+  http://127.0.0.1:5199/
+✓ Done
+✓ Done
+✓ Done
+"lib-ready"
+null
+--- AUDIT DETAIL ---
+"[{\"name\":\"至少在 1 个 Seed 上完成「开局→去程→采矿→返程→成功结算」全流程\",\"ok\":true,\"detail\":\"[{\\\"seed\\\":\\\"uiwin-4\\\",\\\"ok\\\":false,\\\"stage\\\":\\\"return-failed\\\",\\\"backOk\\\":true},{\\\"seed\\\":\\\"uiwin-117\\\",\\\"ok\\\":false,\\\"stage\\\":\\\"return-failed\\\",\\\"backOk\\\":true},{\\\"seed\\\":\\\"uiwin-385\\\",\\\"ok\\\":true,\\\"stage\\\":\\\"done\\\",\\\"backOk\\\":true}]\"},{\"name\":\"去程阶段真的留下了「去」轨迹\",\"ok\":true,\"detail\":\"out=11\"},{\"name\":\"返程阶段真的留下了「回」轨迹\",\"ok\":true,\"detail\":\"ret=10\"},{\"name\":\"返程禁入格在返程阶段可见\",\"ok\":true,\"detail\":\"locked=10\"},{\"name\":\"采矿产生了即时反馈（挖矿结果弹窗）\",\"ok\":true,\"detail\":\"挖矿收获\"},{\"name\":\"挖矿后顶栏宝石重量为 2 kg\",\"ok\":true,\"detail\":\"gemsOk=true\"},{\"name\":\"负重机制 · 有宝石时「丢弃宝石减负」按钮出现\",\"ok\":true,\"detail\":\"{\\\"present\\\":true,\\\"gems\\\":\\\"2→0\\\",\\\"days\\\":\\\"13→13\\\",\\\"reduced\\\":true,\\\"dayKept\\\":true,\\\"title\\\":\\\"丢弃宝石\\\"}\"},{\"name\":\"负重机制 · 点击丢弃后宝石真的减少\",\"ok\":true,\"detail\":\"{\\\"present\\\":true,\\\"gems\\\":\\\"2→0\\\",\\\"days\\\":\\\"13→13\\\",\\\"reduced\\\":true,\\\"dayKept\\\":true,\\\"title\\\":\\\"丢弃宝石\\\"}\"},{\"name\":\"负重机制 · 丢弃不消耗时间\",\"ok\":true,\"detail\":\"{\\\"present\\\":true,\\\"gems\\\":\\\"2→0\\\",\\\"days\\\":\\\"13→13\\\",\\\"reduced\\\":true,\\\"dayKept\\\":true,\\\"title\\\":\\\"丢弃宝石\\\"}\"},{\"name\":\"成功结算画面出现并判定成功返城\",\"ok\":true,\"detail\":\"成功返城 你在第 23 天（上限 42 天）带着宝石回到了城市。 本局 Seed uiwin-385 总用时 / 天数上限 23 / 42 天 去程 / 采矿 / 返程 12 / 1 / 10 天 天气预报包购买次数 0 装备支出 1350 元 进入矿区 Mine A 路线风险评分（仅供统计） 33.5（★★☆☆☆） 最终鉴定单价 194 元/kg 宝石重量\"},{\"name\":\"结算公布最终鉴定单价 / 宝石销售额 / 净收益\",\"ok\":true,\"detail\":\"成功返城 你在第 23 天（上限 42 天）带着宝石回到了城市。 本局 Seed uiwin-385 总用时 / 天数上限 23 / 42 天 去程 / 采矿 / 返程 12 / 1 / 10 天 天气预报包购买次数 0 装备支出 1350 元 进入矿区 Mine A 路线风险评分（仅供统计） 33.5（★★☆☆☆） 最终鉴定单价 194 元/kg 宝石重量 0 kg 宝石销售额 0 元 剩余现金 650 元 最终资产 650 元 净收\"},{\"name\":\"历史日志有完整记录（≥10 条）\",\"ok\":true,\"detail\":\"logLines=43\"},{\"name\":\"结算后「再来一局」可用并回到开局界面\",\"ok\":true,\"detail\":\"backOk=true\"}]"
+--- CONSOLE ERRORS ---
