@@ -10,7 +10,7 @@
 
 | 项目 | 值 |
 |---|---|
-| 总运行时间 | 4 小时 16 分（12:39 → 16:55，含文档与浏览器验收） |
+| 总运行时间 | 4 小时 33 分（12:39 → 17:12，含文档、浏览器验收与 Git 收尾） |
 | 总模拟局数 | **411,300 局**（另有装置校验 7,400 局与 5 个浏览器场景 288 项验收） |
 | 机制候选 | **14 个**（Phase A 全量跑）；参数候选 **26 个**（Phase B 13 个 + 帐篷价格 8 档 + 组合 5 个） |
 | 接受机制 | **1 个**：负重返程（`loadReturn`） |
@@ -18,7 +18,7 @@
 | 最终落盘机制 | `loadReturn = { enabled: true, thresholdKg: 24, stepKg: 6, maxExtraPerDesertTile: 1, allowDrop: true, dropStepKg: 4 }` |
 | 最终落盘数值 | `tentPrice: 700 → 625` |
 | START_HEAD | `6964963` |
-| FINAL_HEAD | 见文末（本轮共 5 个 commit） |
+| FINAL_HEAD | `13fdcbf`（本轮共 5 个 commit，**未 push**；工作区与 `git clean -nd` 均干净） |
 | STATUS | **MECHANISM_EVOLUTION_READY_FOR_HUMAN_UI_TEST** |
 
 **一句话结论**：本轮找到并落盘了一个**真正制造「继续挖 vs 现在返程」抉择**的机制（采矿决策改变率 **81.84%**、无支配策略、合理玩家胜率仍在健康带），
