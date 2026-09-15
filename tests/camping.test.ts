@@ -3,6 +3,7 @@ import { performAction, getLegalMoves } from '../src/game';
 import { GameError } from '../src/game/types';
 import { newGame, calmOverrides, mutate, nearestMineTile, mkTents, charges, TENT_A, TENT_B, TENT_C } from './helpers';
 import { walkTo } from './helpers';
+import { gameConfig } from '../src/game/config/gameConfig';
 
 /**
  * v0.1.2a 宿营与帐篷逐顶管理规则（v0.1.2b：帐篷改用稳定唯一 ID）。
@@ -140,27 +141,27 @@ describe('矿区空等 = 野外宿营', () => {
   });
 });
 
-describe('天气预报购买的必败检查', () => {
-  it('前期购买不受限', () => {
+describe('天气预报购买的现金检查（v0.1.3 现金计价）', () => {
+  it('前期购买不受限，且最大旅程天数完全不变', () => {
     let s = newGame('fc-buy-ok', calmOverrides(newGame('fc-buy-ok').map));
     const info = getLegalMoves(s);
     void info;
+    const cash0 = s.cash;
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(41);
+    expect(s.maxDays).toBe(gameConfig.maxDays);
+    expect(s.cash).toBe(cash0 - gameConfig.forecast.packPrice);
   });
 
-  it('剩余时间仅够完成旅程时禁止购买（不泄露内部天数）', () => {
+  it('时间紧张时购买仍然合法——成本是现金，不是天数', () => {
     let s = newGame('fc-buy-doom', calmOverrides(newGame('fc-buy-doom').map));
-    // 把玩家放在半程、剩余时间紧张：maxDays -1 后数学上无法完成
     s = mutate(s, (m) => {
       m.daysUsed = 35;
       m.maxDays = 42;
     });
-    expect(() => performAction(s, { type: 'BUY_FORECAST_PACK' })).toThrow(
-      /剩余时间不足/,
-    );
-    // 购买被拒绝：状态不变
-    expect(s.maxDays).toBe(42);
-    expect(s.stats.forecastPacks).toBe(0);
+    const cash0 = s.cash;
+    s = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    expect(s.maxDays).toBe(42); // 不再有任何天数惩罚
+    expect(s.cash).toBe(cash0 - gameConfig.forecast.packPrice);
+    expect(s.stats.forecastPacks).toBe(1);
   });
 });

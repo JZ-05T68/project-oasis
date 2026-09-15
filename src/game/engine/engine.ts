@@ -271,6 +271,7 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
     compasses: 0,
     equipmentSpent: 0,
     forecastCharges: 0,
+    forecastSpent: 0,
     position: map.cityId,
     mineEntranceId: null,
     gemPrice: null,
@@ -285,7 +286,14 @@ export function createNewGame(seed: string, opts: CreateGameOptions = {}): GameS
     pendingResults: [],
     lastForecast: null,
     visitDiscount: false,
-    stats: { forecastPacks: 0, outboundDays: null, miningDays: 0, returnStartDay: null },
+    stats: {
+      forecastPacks: 0,
+      forecastChargesGranted: 0,
+      forecastChargesUsed: 0,
+      outboundDays: null,
+      miningDays: 0,
+      returnStartDay: null,
+    },
     log: [],
   };
   // 覆盖表写回（保持 opts 引用不被污染）
@@ -687,21 +695,18 @@ export function getAvailableActions(state: GameState): ActionInfo[] {
     addWait();
   }
 
-  // 天气预报包（成本 = 最大天数 -1；获得 3 次，自动使用 1 次）
-  // v0.1.2a：购买前后台检查是否会导致本局必败
-  const wouldDoom =
-    evaluateViability({ ...state, maxDays: state.maxDays - 1 }).ok === false;
-  const buyForecastDisabled = state.daysUsed >= state.maxDays || wouldDoom;
+  // 天气预报包（v0.1.3 现金计价：cash -= packPrice；最大旅程天数不变）
+  const forecastPrice = gameConfig.forecast.packPrice;
+  const forecastPack = gameConfig.forecast.chargesPerPack;
+  const forecastAuto = gameConfig.forecast.autoUseOnPurchase;
+  const canAffordForecast = state.cash >= forecastPrice;
   actions.push({
     action: { type: 'BUY_FORECAST_PACK' },
-    label: '购买天气预报包（最大天数 -1）',
-    hint: `获得 ${gameConfig.forecast.chargesPerPack} 次预报并立即使用 1 次（显示明天：当前格+邻域）。只预测自然天气，无法预测人为事件。`,
-    disabled: buyForecastDisabled,
-    disabledReason: buyForecastDisabled
-      ? state.daysUsed >= state.maxDays
-        ? '将立即超过最大天数'
-        : '此次购买会导致剩余时间不足以完成旅程'
-      : undefined,
+    label: `购买天气预报包（${forecastPrice} 元）`,
+    price: forecastPrice,
+    hint: `获得 ${forecastPack} 次预报并立即使用 ${forecastAuto} 次（显示明天：当前格+邻域）。只预测自然天气，无法预测人为事件。不消耗天数。`,
+    disabled: !canAffordForecast,
+    disabledReason: !canAffordForecast ? '资金不足' : undefined,
   });
   // 手动使用储存的预报
   actions.push({
@@ -853,37 +858,37 @@ export function performAction(state: GameState, action: GameAction): GameState {
       return s; // 购买不消耗时间
     }
     case 'BUY_FORECAST_PACK': {
-      // v0.1.2a：后台必败检查——购买导致本局数学上无法完成时禁止购买
-      const doomed = evaluateViability({ ...s, maxDays: s.maxDays - 1 });
-      if (!doomed.ok) {
+      // v0.1.3 现金计价：唯一成本是 packPrice 元现金；maxDays 完全不受影响。
+      const price = gameConfig.forecast.packPrice;
+      if (s.cash < price) {
         throw new GameError(
-          'FORECAST_WOULD_DOOM',
-          '无法购买天气预报：此次购买会导致剩余时间不足以完成旅程。',
+          'NO_CASH',
+          `资金不足：购买天气预报包需要 ${price} 元，你只有 ${s.cash} 元。`,
         );
       }
       const pack = gameConfig.forecast.chargesPerPack;
       const auto = gameConfig.forecast.autoUseOnPurchase;
+      const remaining = s.forecastCharges + pack - auto;
       recordResult(
         s,
         {
           title: '天气预报已购买',
-          message: `用 1 天旅程上限换来 ${pack} 次天气观测，并立即自动用掉 ${auto} 次。`,
-          kind: 'good',
-          logText: `购买天气预报包（最大旅程天数降至 ${s.maxDays - 1}），获得 ${pack} 次并自动使用 ${auto} 次。`,
+          message: `支付 ${price} 元买下天气预报包，获得 ${pack} 次天气观测，其中 ${auto} 次已自动使用。`,
+          kind: 'info',
+          logText: `购买天气预报包（-${price} 元），获得 ${pack} 次并自动使用 ${auto} 次，剩余 ${remaining} 次。`,
         },
         () => {
-          s.maxDays -= 1;
+          s.cash -= price;
+          s.forecastSpent += price;
           s.stats.forecastPacks += 1;
+          s.stats.forecastChargesGranted += pack;
           s.forecastCharges += pack;
           s.forecastCharges -= auto;
+          s.stats.forecastChargesUsed += auto;
           s.lastForecast = buildForecastView(s);
         },
       );
-      if (s.daysUsed > s.maxDays) {
-        defeat(s, 'TIMEOUT', `最大旅程天数已降至 ${s.maxDays}，而你已经走了 ${s.daysUsed} 天……`);
-        return s;
-      }
-      return s; // 成本已通过 maxDays 支付，不消耗当天
+      return s; // 现金支付，不消耗当天
     }
     case 'USE_FORECAST': {
       if (s.forecastCharges <= 0) throw new GameError('NO_FORECAST', '没有剩余预报次数');
@@ -897,6 +902,7 @@ export function performAction(state: GameState, action: GameAction): GameState {
         },
         () => {
           s.forecastCharges -= 1;
+          s.stats.forecastChargesUsed += 1;
           s.lastForecast = buildForecastView(s);
         },
       );

@@ -1,7 +1,13 @@
 import type { BotRng, BotStrategy } from './types';
 import type { EventChoice } from '../../game/types';
 import type { FairView } from '../fairView';
-import { baseBotDecide, botTentId, pickFrom, type BaseBotConfig } from './utils';
+import {
+  baseBotDecide,
+  blindNextTile,
+  botTentId,
+  pickFrom,
+  type BaseBotConfig,
+} from './utils';
 
 /**
  * v0.1.2 策略 Bot（格子地图版，供 Smoke Simulation 使用）。
@@ -87,9 +93,114 @@ export const randomBot: BotStrategy = {
 /* 2～11. 基于 baseBotDecide 的策略 Bot                                 */
 /* ------------------------------------------------------------------ */
 
-function makeBot(cfg: BaseBotConfig): BotStrategy {
-  return { name: cfg.name, decide: (view, rng) => baseBotDecide(view, cfg, rng) };
+type BotSpec = Omit<BaseBotConfig, 'forecastMaxPacks'> & { forecastMaxPacks?: number };
+
+function makeBot(cfg: BotSpec): BotStrategy {
+  const full: BaseBotConfig = { forecastMaxPacks: 0, ...cfg };
+  const blind =
+    full.forecast === 'never' ? undefined : (view: FairView) => blindNextTile(view, full);
+  return {
+    name: full.name,
+    decide: (view, rng) => baseBotDecide(view, full, rng),
+    ...(blind ? { blindMove: blind } : {}),
+  };
 }
+
+/* ------------------------------------------------------------------ */
+/* 天气预报策略梯度（v0.1.3 现金计价专项）                              */
+/* ------------------------------------------------------------------ */
+/**
+ * 五个 Bot 除 `forecast` / `forecastMaxPacks` 外**完全同配置**：
+ * 同一 mount 目标、同一路线风格（FORECAST：无预报时 = 纯最短路）、
+ * 同一装备政策（2 帐篷 + 1 指南针）、同一采矿余量、同一事件应对。
+ * 这样「买预报 vs 不买预报」的差异只来自预报本身，而不是装备或路线基线不同。
+ */
+
+/** 永远不购买（对照组基线） */
+export const noForecastBot = makeBot({
+  name: 'NoForecastBot',
+  target: { kind: 'NEAREST' },
+  movement: 'FORECAST',
+  equipment: { wantTents: 2, wantCompasses: 1, cashReserve: 0 },
+  miningBuffer: 6,
+  eventPolicy: 'default',
+  forecast: 'never',
+  forecastMaxPacks: 0,
+  rest: true,
+  wait: true,
+});
+
+/** 只在特定风险条件下买 1 包（耐力见底 + 前方确有已知风险 / 无帐篷） */
+export const lightForecastBot = makeBot({
+  name: 'LightForecastBot',
+  target: { kind: 'NEAREST' },
+  movement: 'FORECAST',
+  equipment: { wantTents: 2, wantCompasses: 1, cashReserve: 0 },
+  miningBuffer: 6,
+  eventPolicy: 'default',
+  forecast: 'light',
+  forecastMaxPacks: 1,
+  rest: true,
+  wait: true,
+});
+
+/** 本轮最重要的「真人代理」Bot：按风险/耐力/帐篷/阶段/现金综合打分决定是否买 */
+export const adaptiveForecastBot = makeBot({
+  name: 'AdaptiveForecastBot',
+  target: { kind: 'NEAREST' },
+  movement: 'FORECAST',
+  equipment: { wantTents: 2, wantCompasses: 1, cashReserve: 0 },
+  miningBuffer: 6,
+  eventPolicy: 'default',
+  forecast: 'adaptive',
+  forecastMaxPacks: 3,
+  rest: true,
+  wait: true,
+});
+
+/** 明显偏爱预报，最多 5 包（检测「过度购买是否反而成为最优」） */
+export const heavyForecastBot = makeBot({
+  name: 'HeavyForecastBot',
+  target: { kind: 'NEAREST' },
+  movement: 'FORECAST',
+  equipment: { wantTents: 2, wantCompasses: 1, cashReserve: 0 },
+  miningBuffer: 6,
+  eventPolicy: 'default',
+  forecast: 'heavy',
+  forecastMaxPacks: 5,
+  rest: true,
+  wait: true,
+});
+
+/** 尽可能频繁购买，只看现金（检测低价/小包下是否形成预报滥用） */
+export const forecastAbuserBot = makeBot({
+  name: 'ForecastAbuserBot',
+  target: { kind: 'NEAREST' },
+  movement: 'FORECAST',
+  equipment: { wantTents: 2, wantCompasses: 1, cashReserve: 0 },
+  miningBuffer: 6,
+  eventPolicy: 'default',
+  forecast: 'abuser',
+  forecastMaxPacks: Number.POSITIVE_INFINITY,
+  rest: true,
+  wait: true,
+});
+
+/** 预报策略梯度全体（用于专项实验的固定 5 组对照） */
+export const FORECAST_BOTS: BotStrategy[] = [
+  noForecastBot,
+  lightForecastBot,
+  adaptiveForecastBot,
+  heavyForecastBot,
+  forecastAbuserBot,
+];
+
+/**
+ * 兼容旧报告/脚本的别名：`ForecastBot` = AdaptiveForecastBot。
+ * 旧报告里 ForecastBot 的数字对应的是「旧 maxDays 计价 + 旧 heuristic 策略」，
+ * 不要跨版本直接对比数值。
+ */
+export const forecastBot: BotStrategy = adaptiveForecastBot;
 
 export const shortestPathBot = makeBot({
   name: 'ShortestPathBot',
@@ -136,30 +247,6 @@ export const cheapBot = makeBot({
   eventPolicy: 'cheap',
   forecast: 'never',
   rest: false,
-  wait: false,
-});
-
-export const forecastBot = makeBot({
-  name: 'ForecastBot',
-  target: { kind: 'NEAREST' },
-  movement: 'SHORTEST',
-  equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 100 },
-  miningBuffer: 5,
-  eventPolicy: 'default',
-  forecast: 'heuristic',
-  rest: true,
-  wait: true,
-});
-
-export const noForecastBot = makeBot({
-  name: 'NoForecastBot',
-  target: { kind: 'NEAREST' },
-  movement: 'SHORTEST',
-  equipment: { wantTents: 1, wantCompasses: 1, cashReserve: 100 },
-  miningBuffer: 5,
-  eventPolicy: 'default',
-  forecast: 'never',
-  rest: true,
   wait: false,
 });
 
@@ -240,9 +327,30 @@ export const reasonablePlayerBot = makeBot({
   wait: false,
 });
 
+/**
+ * VillageWorkerBot —— 二次数值扫描专用：会考虑「市集打工」的真人代理。
+ *
+ * 与 ReasonablePlayerBot 完全同配置，唯一区别是事件政策为 'work'：
+ * 市集上会按 `marketChoice()` 在「八折」与「打工」之间做取舍。
+ * 之所以单独建一个 Bot 而不是改 ReasonablePlayerBot：
+ *  - Forecast 实验的 5 个对照 Bot 必须保持事件政策不变，否则预报标定结果会被污染；
+ *  - 这样「打工 vs 不打工」也是干净的单变量对照。
+ */
+export const villageWorkerBot = makeBot({
+  name: 'VillageWorkerBot',
+  target: { kind: 'NEAREST' },
+  movement: 'SHORTEST',
+  equipment: { wantTents: 2, wantCompasses: 1, cashReserve: 0 },
+  miningBuffer: 6,
+  eventPolicy: 'work',
+  forecast: 'never',
+  forecastMaxPacks: 0,
+  rest: true,
+  wait: false,
+});
+
 /** 更保守的对照：3 顶帐篷 + 2 只指南针，保留 9 天余量 */
-export const cautiousPlayerBot = makeBot({
-  name: 'CautiousPlayerBot',
+export const cautiousPlayerBot = makeBot({  name: 'CautiousPlayerBot',
   target: { kind: 'NEAREST' },
   movement: 'SHORTEST',
   equipment: { wantTents: 3, wantCompasses: 2, cashReserve: 0 },
@@ -273,8 +381,7 @@ export const ALL_BOTS: BotStrategy[] = [
   safeBot,
   preparedBot,
   cheapBot,
-  forecastBot,
-  noForecastBot,
+  ...FORECAST_BOTS,
   greedyMinerBot,
   conservativeMinerBot,
   mineABot,
@@ -282,6 +389,7 @@ export const ALL_BOTS: BotStrategy[] = [
   reasonablePlayerBot,
   cautiousPlayerBot,
   wastefulBot,
+  villageWorkerBot,
 ];
 
 export const BOT_BY_NAME: Record<string, BotStrategy> = Object.fromEntries(

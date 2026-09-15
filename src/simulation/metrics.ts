@@ -43,6 +43,39 @@ export interface RunResult {
   miningDays: number;
   returnDays: number;
   forecastPacks: number;
+  /* ---- 天气预报专项遥测（v0.1.3 现金计价） ---- */
+  /** 花在天气预报包上的现金 */
+  forecastMoneySpent?: number;
+  /** 累计发放的预报次数 = packs × chargesPerPack */
+  forecastChargesGranted?: number;
+  /** 累计消耗的预报次数（含购买后自动使用） */
+  forecastChargesUsed?: number;
+  /** 结束时仍未使用的预报次数 */
+  forecastChargesUnused?: number;
+  /** 出现过「有效预报窗口」的回合数 */
+  forecastWindowTurns?: number;
+  /** 有效预报窗口内确实做了移动决策的次数（Decision 分母） */
+  forecastDecisionOpportunities?: number;
+  /** 有效预报（Decision-Useful：真的改了行动）次数 */
+  forecastDecisionUseful?: number;
+  /** 仅供参考（Informational Only：看了但没改计划）次数 */
+  forecastInformationalOnly?: number;
+  /** 预报窗口内出现的「明天恶劣」可走邻格总数 */
+  forecastSevereOptionsSeen?: number;
+  /** 明知恶劣仍进入的次数 */
+  forecastSevereEntered?: number;
+  /** 存在恶劣选项但最终选了安全格的回合数 */
+  forecastSevereAvoided?: number;
+  staminaLossAvoidedEstimate?: number;
+  daysLostAvoidedEstimate?: number;
+  tentDurabilitySavedEstimate?: number;
+  tentsDestroyedAvoidedEstimate?: number;
+  compassUsesAvoidedEstimate?: number;
+  /** 村庄打工（市集 WORK）天数与收益 */
+  villageWorkDays?: number;
+  villageWorkIncome?: number;
+  /** 【Shadow-Lab 专用】返程负重模型造成的额外耐力损失（正式游戏恒为 undefined） */
+  returnLoadStaminaLoss?: number;
   gemsKg: number;
   gemPrice: number | null;
   gemRevenue: number;
@@ -146,6 +179,39 @@ export interface BotSummary {
   mineVisits: Record<TileId, number>;
   /** 平均路线风险评分（有值的局） */
   avgRouteScore: number | null;
+  /** 天气预报专项聚合（v0.1.3） */
+  forecast: ForecastSummary;
+  /** 村庄打工（市集 WORK） */
+  avgVillageWorkDays: number;
+  avgVillageWorkIncome: number;
+}
+
+export interface ForecastSummary {
+  /** 至少买过 1 包的局占比 % */
+  purchaseRate: number;
+  avgPacks: number;
+  avgMoneySpent: number;
+  avgChargesGranted: number;
+  avgChargesUsed: number;
+  avgChargesUnused: number;
+  /** 已购买次数里被真正用掉的比例 %（套餐使用率） */
+  packUsageRate: number;
+  /** 每 100 元预报支出带来的「估计伤害减少」点数 */
+  damageReductionPer100: number;
+  /** 有效预报次数 / 做过移动决策的次数 % */
+  decisionUtilityRate: number;
+  avgDecisionUseful: number;
+  avgInformationalOnly: number;
+  avgSevereOptionsSeen: number;
+  avgSevereAvoided: number;
+  avgSevereEntered: number;
+  avgStaminaLossAvoidedEstimate: number;
+  avgDaysLostAvoidedEstimate: number;
+  avgTentDurabilitySavedEstimate: number;
+  avgTentsDestroyedAvoidedEstimate: number;
+  avgCompassUsesAvoidedEstimate: number;
+  /** 至少用掉 1 次预报的局占比 % */
+  useRate: number;
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -240,6 +306,49 @@ export function aggregateBot(results: RunResult[]): BotSummary {
     avgGemsKgWins: round2(mean(wins.map((r) => r.gemsKg))),
     mineVisits,
     avgRouteScore: scores.length ? round2(mean(scores)) : null,
+    forecast: aggregateForecast(results),
+    avgVillageWorkDays: round2(mean(results.map((r) => r.villageWorkDays ?? 0))),
+    avgVillageWorkIncome: round2(mean(results.map((r) => r.villageWorkIncome ?? 0))),
+  };
+}
+
+/** 天气预报专项聚合（v0.1.3 现金计价） */
+export function aggregateForecast(results: RunResult[]): ForecastSummary {
+  const runs = results.length || 1;
+  const purchased = results.filter((r) => (r.forecastPacks ?? 0) > 0).length;
+  const used = results.filter((r) => (r.forecastChargesUsed ?? 0) > 0).length;
+  const granted = results.reduce((a, r) => a + (r.forecastChargesGranted ?? 0), 0);
+  const usedCharges = results.reduce((a, r) => a + (r.forecastChargesUsed ?? 0), 0);
+  const opportunities = results.reduce((a, r) => a + (r.forecastDecisionOpportunities ?? 0), 0);
+  const useful = results.reduce((a, r) => a + (r.forecastDecisionUseful ?? 0), 0);
+  const money = results.reduce((a, r) => a + (r.forecastMoneySpent ?? 0), 0);
+  const stamina = results.reduce((a, r) => a + (r.staminaLossAvoidedEstimate ?? 0), 0);
+  const days = results.reduce((a, r) => a + (r.daysLostAvoidedEstimate ?? 0), 0);
+  const tents = results.reduce((a, r) => a + (r.tentsDestroyedAvoidedEstimate ?? 0), 0);
+  const compass = results.reduce((a, r) => a + (r.compassUsesAvoidedEstimate ?? 0), 0);
+  // 「伤害减少点数」= 耐力 + 天数 + 帐篷 + 指南针 的加权估计（统一到"资源点数"口径）
+  const damagePoints = stamina + days + tents * 2 + compass;
+  return {
+    purchaseRate: round2((purchased / runs) * 100),
+    avgPacks: round2(mean(results.map((r) => r.forecastPacks ?? 0))),
+    avgMoneySpent: round2(mean(results.map((r) => r.forecastMoneySpent ?? 0))),
+    avgChargesGranted: round2(mean(results.map((r) => r.forecastChargesGranted ?? 0))),
+    avgChargesUsed: round2(mean(results.map((r) => r.forecastChargesUsed ?? 0))),
+    avgChargesUnused: round2(mean(results.map((r) => r.forecastChargesUnused ?? 0))),
+    packUsageRate: round2(granted === 0 ? 0 : (usedCharges / granted) * 100),
+    damageReductionPer100: round2(money === 0 ? 0 : (damagePoints / money) * 100),
+    decisionUtilityRate: round2(opportunities === 0 ? 0 : (useful / opportunities) * 100),
+    avgDecisionUseful: round2(mean(results.map((r) => r.forecastDecisionUseful ?? 0))),
+    avgInformationalOnly: round2(mean(results.map((r) => r.forecastInformationalOnly ?? 0))),
+    avgSevereOptionsSeen: round2(mean(results.map((r) => r.forecastSevereOptionsSeen ?? 0))),
+    avgSevereAvoided: round2(mean(results.map((r) => r.forecastSevereAvoided ?? 0))),
+    avgSevereEntered: round2(mean(results.map((r) => r.forecastSevereEntered ?? 0))),
+    avgStaminaLossAvoidedEstimate: round2(mean(results.map((r) => r.staminaLossAvoidedEstimate ?? 0))),
+    avgDaysLostAvoidedEstimate: round2(mean(results.map((r) => r.daysLostAvoidedEstimate ?? 0))),
+    avgTentDurabilitySavedEstimate: round2(mean(results.map((r) => r.tentDurabilitySavedEstimate ?? 0))),
+    avgTentsDestroyedAvoidedEstimate: round2(mean(results.map((r) => r.tentsDestroyedAvoidedEstimate ?? 0))),
+    avgCompassUsesAvoidedEstimate: round2(mean(results.map((r) => r.compassUsesAvoidedEstimate ?? 0))),
+    useRate: round2((used / runs) * 100),
   };
 }
 

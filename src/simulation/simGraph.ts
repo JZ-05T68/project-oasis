@@ -38,6 +38,30 @@ export function bfsPath(
   return null;
 }
 
+/** 从目标出发的 BFS 距离场（含目标自身 = 0）。目标不可达时返回 null。
+ *  用于「不绕远路的选择」：只考虑能保持最短路长度的下一步。 */
+export function bfsDistMap(
+  map: FairMap,
+  to: string,
+  forbidden: Iterable<string> = [],
+  nodeFilter?: (id: string) => boolean,
+): Map<string, number> | null {
+  const banned = new Set(forbidden);
+  const dist = new Map<string, number>([[to, 0]]);
+  const queue: string[] = [to];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const nb of map.neighbors(cur)) {
+      if (dist.has(nb)) continue;
+      if (banned.has(nb) && nb !== to) continue;
+      if (nodeFilter && !nodeFilter(nb)) continue;
+      dist.set(nb, dist.get(cur)! + 1);
+      queue.push(nb);
+    }
+  }
+  return dist.size > 1 ? dist : null;
+}
+
 export interface WeightedPath {
   path: string[];
   cost: number;

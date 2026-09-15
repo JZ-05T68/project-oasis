@@ -358,25 +358,33 @@ describe('核心引擎：购买天气预报包', () => {
   const AUTO = gameConfig.forecast.autoUseOnPurchase;
   const AFTER_BUY = PACK - AUTO;
 
-  it(`购买：maxDays -1，+${PACK} 次并立即使用 ${AUTO} 次剩 ${AFTER_BUY} 次`, () => {
+  it(`购买：现金 -${gameConfig.forecast.packPrice} 元，+${PACK} 次并立即使用 ${AUTO} 次剩 ${AFTER_BUY} 次，maxDays 不变`, () => {
     let s = newGame('fpack-1', calmOverrides(newGame('fpack-1').map));
+    const cash0 = s.cash;
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(gameConfig.maxDays - 1);
+    expect(s.maxDays).toBe(gameConfig.maxDays);
+    expect(s.cash).toBe(cash0 - gameConfig.forecast.packPrice);
+    expect(s.forecastSpent).toBe(gameConfig.forecast.packPrice);
     expect(s.forecastCharges).toBe(AFTER_BUY);
     expect(s.stats.forecastPacks).toBe(1);
+    expect(s.stats.forecastChargesGranted).toBe(PACK);
+    expect(s.stats.forecastChargesUsed).toBe(AUTO);
     expect(s.daysUsed).toBe(0); // 不消耗当天
     expect(s.lastForecast).not.toBeNull();
     expect(s.lastForecast!.day).toBe(1);
   });
 
-  it('重复购买正确叠加', () => {
+  it('重复购买正确叠加（现金与次数同时累加，天数始终不变）', () => {
     let s = newGame('fpack-2', calmOverrides(newGame('fpack-2').map));
+    const cash0 = s.cash;
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
     expect(s.forecastCharges).toBe(AFTER_BUY);
     s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.forecastCharges).toBe(AFTER_BUY - 1);
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(gameConfig.maxDays - 2);
+    expect(s.maxDays).toBe(gameConfig.maxDays);
+    expect(s.cash).toBe(cash0 - gameConfig.forecast.packPrice * 2);
+    expect(s.forecastSpent).toBe(gameConfig.forecast.packPrice * 2);
     expect(s.forecastCharges).toBe(AFTER_BUY - 1 + PACK - AUTO);
     expect(s.stats.forecastPacks).toBe(2);
   });

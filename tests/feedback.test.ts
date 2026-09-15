@@ -437,23 +437,27 @@ describe('§八~§十三 即时反馈（resource delta result）', () => {
     expect(changeOf(r, 'tent')).toMatchObject({ label: 'Tent A（新）', before: '无', after: '3/3', direction: 'up' });
   });
 
-  it('购买天气预报包：maxDays 与预报次数合成同一个结果', () => {
+  it('购买天气预报包：现金扣减与预报次数合成同一个结果（不再动 maxDays）', () => {
     let s = newGame('fb-forecast', calmOverrides(newGame('fb-forecast').map));
     s = mutate(s, (m) => {
       m.pendingResults = [];
     });
+    const cash0 = s.cash;
     const s2 = performAction(s, { type: 'BUY_FORECAST_PACK' });
     expect(s2.pendingResults).toHaveLength(1);
     const r = lastResult(s2);
     expect(r.title).toBe('天气预报已购买');
-    expect(changeOf(r, 'maxDays')).toMatchObject({
-      before: String(gameConfig.maxDays),
-      after: String(gameConfig.maxDays - 1),
+    expect(changeOf(r, 'cash')).toMatchObject({
+      before: `¥${cash0}`,
+      after: `¥${cash0 - gameConfig.forecast.packPrice}`,
     });
     expect(changeOf(r, 'forecast')).toMatchObject({
       before: '0',
       after: String(gameConfig.forecast.chargesPerPack - gameConfig.forecast.autoUseOnPurchase),
     });
+    // v0.1.3：购买预报绝不再改变最大旅程天数
+    expect(s2.maxDays).toBe(gameConfig.maxDays);
+    expect(changeOf(r, 'maxDays')).toBeUndefined();
     expect(s2.lastForecast).not.toBeNull();
   });
 

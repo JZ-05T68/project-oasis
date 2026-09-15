@@ -214,10 +214,12 @@ describe('仿真统计正确性（合成数据）', () => {
 });
 
 describe('引擎直接行为抽查（仿真等价路径）', () => {
-  it('买预报包 + 使用 + 宿营 组合行为', () => {
+  it('买预报包 + 使用 + 宿营 组合行为（现金计价，天数不变）', () => {
     let s = newGameCalm('combo-v012');
+    const cash0 = s.cash;
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(gameConfig.maxDays - 1);
+    expect(s.maxDays).toBe(gameConfig.maxDays);
+    expect(s.cash).toBe(cash0 - gameConfig.forecast.packPrice);
     expect(s.forecastCharges).toBe(gameConfig.forecast.chargesPerPack - gameConfig.forecast.autoUseOnPurchase);
     s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.forecastCharges).toBe(

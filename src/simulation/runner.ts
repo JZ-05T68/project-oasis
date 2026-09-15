@@ -5,6 +5,15 @@ import { gameConfig } from '../game/config/gameConfig';
 import { buildFairView, FairView } from './fairView';
 import type { RunResult } from './metrics';
 import { summarizeEventChoice } from './metrics';
+import {
+  emptyForecastAcc,
+  forecastWeatherOf,
+  hasActiveForecast,
+  isSevereWeather,
+  recordAvoidance,
+  recordEntry,
+  severeOptions,
+} from './forecastTelemetry';
 
 /**
  * 仿真 runner：直接驱动正式 Game Engine，不依赖 React/DOM。
@@ -17,6 +26,8 @@ export interface BotStrategy {
   readonly name: string;
   /** 每个回合调用一次；返回一个合法决策，由 runner 通过引擎 API 执行 */
   decide(view: FairView, rng: BotRng): BotDecision;
+  /** 【仅遥测】忽略预报时本回合会走的格子（见 bots/utils.blindNextTile） */
+  blindMove?(view: FairView): TileId | null;
 }
 
 export type BotDecision =
@@ -137,6 +148,7 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
   const rng = makeBotRng(seed, bot.name);
   // 累计器：过程量（购买/事件/使用）在这里追踪，终局量最后从引擎终态覆盖
   const acc = extractResult(state, bot.name, seed, null);
+  const fAcc = emptyForecastAcc();
 
   let turns = 0;
   while (state.status === 'ONGOING') {
@@ -144,7 +156,37 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
       throw new Error(`runOne 超过最大回合数（seed=${seed}, bot=${bot.name}）`);
     }
     const view = buildFairView(state);
+    // 预报是否对本回合有效（锚定明天）。有效才统计「决策是否被改变」。
+    const fcActive = hasActiveForecast(view);
+    if (fcActive) {
+      fAcc.forecastWindowTurns += 1;
+      fAcc.severeOptionsSeen += severeOptions(view).length;
+    }
     const decision = bot.decide(view, rng);
+
+    if (fcActive) {
+      if (decision.type === 'MOVE') {
+        fAcc.decisionOpportunities += 1;
+        const blind = bot.blindMove ? bot.blindMove(view) : null;
+        if (blind && blind !== decision.toTileId) fAcc.decisionUseful += 1;
+        else fAcc.informationalOnly += 1;
+        const sev = severeOptions(view);
+        if (sev.includes(decision.toTileId)) {
+          recordEntry(fAcc, view, decision.toTileId);
+        } else if (sev.length > 0) {
+          fAcc.severeAvoided += 1;
+          recordAvoidance(fAcc, view, sev[0]);
+        }
+      } else if (decision.type === 'ACTION' && decision.action.type === 'WAIT') {
+        // 因为预报显示「当前格明天恶劣」而原地停留 —— 这是最典型的有效预报
+        const here = forecastWeatherOf(view, view.position);
+        if (here && isSevereWeather(here)) {
+          fAcc.decisionOpportunities += 1;
+          fAcc.decisionUseful += 1;
+          recordAvoidance(fAcc, view, view.position);
+        }
+      }
+    }
 
     if (decision.type === 'MOVE') {
       state = performMove(state, decision.toTileId);
@@ -182,6 +224,13 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
 
   // 用引擎终态覆盖终局量，保留过程量
   const final = extractResult(state, bot.name, seed, acc.error);
+  // 预报次数/花费以引擎统计为准（过程累计可能因早退缺失）
+  fAcc.packsPurchased = state.stats.forecastPacks;
+  fAcc.moneySpent = state.forecastSpent;
+  fAcc.chargesGranted = state.stats.forecastChargesGranted;
+  fAcc.chargesUsed = state.stats.forecastChargesUsed;
+  fAcc.chargesUnused = state.forecastCharges;
+  const workEvents = acc.events.filter((e) => e.kind === 'MARKET' && e.choice === 'WORK');
   return {
     ...final,
     tentsBought: acc.tentsBought,
@@ -192,6 +241,24 @@ export function runOne(bot: BotStrategy, seed: string): RunResult {
     restCount: acc.restCount,
     waitCount: acc.waitCount,
     events: acc.events,
+    forecastMoneySpent: fAcc.moneySpent,
+    forecastChargesGranted: fAcc.chargesGranted,
+    forecastChargesUsed: fAcc.chargesUsed,
+    forecastChargesUnused: fAcc.chargesUnused,
+    forecastWindowTurns: fAcc.forecastWindowTurns,
+    forecastDecisionOpportunities: fAcc.decisionOpportunities,
+    forecastDecisionUseful: fAcc.decisionUseful,
+    forecastInformationalOnly: fAcc.informationalOnly,
+    forecastSevereOptionsSeen: fAcc.severeOptionsSeen,
+    forecastSevereEntered: fAcc.severeEntered,
+    forecastSevereAvoided: fAcc.severeAvoided,
+    staminaLossAvoidedEstimate: fAcc.staminaLossAvoidedEstimate,
+    daysLostAvoidedEstimate: fAcc.daysLostAvoidedEstimate,
+    tentDurabilitySavedEstimate: fAcc.tentDurabilitySavedEstimate,
+    tentsDestroyedAvoidedEstimate: fAcc.tentsDestroyedAvoidedEstimate,
+    compassUsesAvoidedEstimate: fAcc.compassUsesAvoidedEstimate,
+    villageWorkDays: workEvents.length,
+    villageWorkIncome: workEvents.reduce((a, e) => a + e.cashDelta, 0),
   };
 }
 

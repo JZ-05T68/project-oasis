@@ -62,6 +62,16 @@ export interface FairView {
   compasses: number;
   gemsKg: number;
   forecastCharges: number;
+  /** 天气预报包单价（元）——Bot 需要它来判断「值不值得买」，与真人看到的是同一个数 */
+  forecastPackPrice: number;
+  /** 每包发放的预报次数 */
+  forecastChargesPerPack: number;
+  /** 购买后自动使用的次数 */
+  forecastAutoUseOnPurchase: number;
+  /** 本局已购买的预报包数 */
+  forecastPacks: number;
+  /** 本局累计已花在天气预报上的现金 */
+  forecastSpent: number;
 
   mineEntranceId: TileId | null;
   gemPrice: number | null;
@@ -137,6 +147,11 @@ export function buildFairView(state: GameState): FairView {
     compasses: state.compasses,
     gemsKg: state.gemsKg,
     forecastCharges: state.forecastCharges,
+    forecastPackPrice: gameConfig.forecast.packPrice,
+    forecastChargesPerPack: gameConfig.forecast.chargesPerPack,
+    forecastAutoUseOnPurchase: gameConfig.forecast.autoUseOnPurchase,
+    forecastPacks: state.stats.forecastPacks,
+    forecastSpent: state.forecastSpent,
     mineEntranceId: state.mineEntranceId,
     gemPrice: state.gemPrice,
     routeScore: state.routeScore,

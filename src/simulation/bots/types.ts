@@ -1,5 +1,6 @@
 import type { BotDecision, BotRng } from '../runner';
 import type { FairView } from '../fairView';
+import type { TileId } from '../../game/types';
 
 export type { BotDecision, BotRng };
 
@@ -12,4 +13,10 @@ export type { BotDecision, BotRng };
 export interface BotStrategy {
   readonly name: string;
   decide(view: FairView, rng: BotRng): BotDecision;
+  /**
+   * 【仅遥测，不参与决策】忽略预报时本回合会走的格子。
+   * 用于把「有效预报（Decision-Useful）」与「只看不改（Informational Only）」分开：
+   * 返回 null 表示该回合本来就不做移动决策（事件/采矿/买装备/修整），不计入分母。
+   */
+  blindMove?(view: FairView): TileId | null;
 }

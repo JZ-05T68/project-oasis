@@ -105,25 +105,25 @@ describe('结算：失败', () => {
   });
 });
 
-describe('天气预报包的成本模型', () => {
-  it('购买压缩预算：maxDays 41 时，第 41 天仍在野外/城市 → 立即提前判负', () => {
+describe('天气预报包的现金成本模型（v0.1.3）', () => {
+  it('购买不再压缩时间预算：连买 4 包 maxDays 仍是 42，只扣现金', () => {
     let s = newGame('fc-cost', calmOverrides(newGame('fc-cost').map));
-    s = performAction(s, { type: 'BUY_FORECAST_PACK' }); // 42→41
-    s = mutate(s, (m) => {
-      m.daysUsed = 40;
-    });
-    // 在城市停留到第 41 天（城市免费等待）
-    s = performAction(s, { type: 'WAIT' });
-    expect(s.daysUsed).toBe(41);
-    // 第 41 天（== maxDays）剩余 0 天，已不可能完成往返 → v0.1.2a 提前判负
-    expect(s.status).toBe('DEFEAT');
-    expect(s.defeatReason).toBe('INSUFFICIENT_TIME');
+    for (let i = 0; i < 4; i++) s = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    // 旧机制下 maxDays 会变成 38；新机制恒为 42
+    expect(s.maxDays).toBe(gameConfig.maxDays);
+    expect(s.stats.forecastPacks).toBe(4);
+    expect(s.cash).toBe(gameConfig.startCash - gameConfig.forecast.packPrice * 4);
+    expect(s.forecastSpent).toBe(gameConfig.forecast.packPrice * 4);
+    expect(s.daysUsed).toBe(0);
+    expect(s.status).toBe('ONGOING');
   });
 
-  it('正常前期购买不会被误禁：day 0 购买成功', () => {
+  it('正常前期购买不会被误禁：day 0 购买成功且只扣现金', () => {
     let s = newGame('fc-cost-ok', calmOverrides(newGame('fc-cost-ok').map));
+    const cash0 = s.cash;
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(41);
+    expect(s.maxDays).toBe(gameConfig.maxDays);
+    expect(s.cash).toBe(cash0 - gameConfig.forecast.packPrice);
     expect(s.status).toBe('ONGOING');
   });
 });

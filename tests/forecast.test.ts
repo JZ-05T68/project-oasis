@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { performMove, performAction, getLegalMoves } from '../src/game';
+import { performMove, performAction, getLegalMoves, getAvailableActions } from '../src/game';
 import { GameError } from '../src/game/types';
 import { bfsPath } from '../src/game/map/grid';
 import { newGame, calmOverrides, mutate, walkTo, mkTents, TENT_A } from './helpers';
@@ -12,39 +12,77 @@ import { gameConfig } from '../src/game/config/gameConfig';
  */
 const PACK = gameConfig.forecast.chargesPerPack;
 const AUTO = gameConfig.forecast.autoUseOnPurchase;
+const PRICE = gameConfig.forecast.packPrice;
 const AFTER_BUY = PACK - AUTO;
 
-describe('天气预报：购买机制', () => {
-  it(`首次购买：maxDays ${gameConfig.maxDays}→${gameConfig.maxDays - 1}，获得 ${PACK} 次，自动使用 ${AUTO} 次剩 ${AFTER_BUY} 次，并立即显示明天`, () => {
+describe('天气预报：购买机制（v0.1.3 现金计价）', () => {
+  it(`首次购买：cash -${PRICE}，maxDays 保持 ${gameConfig.maxDays}，获得 ${PACK} 次，自动使用 ${AUTO} 次剩 ${AFTER_BUY} 次，并立即显示明天`, () => {
     let s = newGame('fc-buy-1', calmOverrides(newGame('fc-buy-1').map));
+    const cash0 = s.cash;
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(gameConfig.maxDays - 1);
+    expect(s.cash).toBe(cash0 - PRICE); // 现金正确减少
+    expect(s.forecastSpent).toBe(PRICE);
+    expect(s.maxDays).toBe(gameConfig.maxDays); // 天数上限保持不变
+    expect(gameConfig.forecast.maxDaysCost).toBe(0); // 旧机制正式退出
     expect(s.daysUsed).toBe(0); // 购买不消耗当天
     expect(s.forecastCharges).toBe(AFTER_BUY);
     expect(s.stats.forecastPacks).toBe(1);
+    expect(s.stats.forecastChargesGranted).toBe(PACK);
+    expect(s.stats.forecastChargesUsed).toBe(AUTO);
     expect(s.lastForecast).not.toBeNull();
     expect(s.lastForecast!.day).toBe(1); // 明天
   });
 
-  it('重复购买正确叠加：存量 + 每包次数 - 自动使用', () => {
+  it('重复购买正确叠加：现金累减、存量累加，maxDays 永不变', () => {
     let s = newGame('fc-buy-2', calmOverrides(newGame('fc-buy-2').map));
+    const cash0 = s.cash;
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
     expect(s.forecastCharges).toBe(AFTER_BUY);
     s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.forecastCharges).toBe(AFTER_BUY - 1);
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    expect(s.maxDays).toBe(gameConfig.maxDays - 2);
+    expect(s.maxDays).toBe(gameConfig.maxDays);
+    expect(s.cash).toBe(cash0 - PRICE * 2);
     expect(s.forecastCharges).toBe(AFTER_BUY - 1 + PACK - AUTO);
     expect(s.stats.forecastPacks).toBe(2);
   });
 
-  it('购买后手动使用：不消耗 daysUsed、不再减少 maxDays', () => {
+  it('余额不足无法购买：抛 NO_CASH，且绝不出现负现金', () => {
+    let s = newGame('fc-buy-broke');
+    s = mutate(s, (m) => {
+      m.cash = PRICE - 1;
+    });
+    expect(() => performAction(s, { type: 'BUY_FORECAST_PACK' })).toThrow(GameError);
+    expect(s.cash).toBe(PRICE - 1); // 状态未被污染
+    expect(s.stats.forecastPacks).toBe(0);
+    expect(s.forecastCharges).toBe(0);
+  });
+
+  it('余额不足时按钮被禁用并提示「资金不足」', () => {
+    let s = newGame('fc-buy-disabled');
+    s = mutate(s, (m) => {
+      m.cash = PRICE - 1;
+    });
+    const info = getAvailableActions(s).find((a) => a.action.type === 'BUY_FORECAST_PACK')!;
+    expect(info.disabled).toBe(true);
+    expect(info.disabledReason).toBe('资金不足');
+    expect(info.price).toBe(PRICE);
+    // 刚好够钱 → 可用
+    const s2 = mutate(s, (m) => {
+      m.cash = PRICE;
+    });
+    const info2 = getAvailableActions(s2).find((a) => a.action.type === 'BUY_FORECAST_PACK')!;
+    expect(info2.disabled).toBe(false);
+  });
+
+  it('购买后手动使用：不消耗 daysUsed、不减现金、不改 maxDays', () => {
     let s = newGame('fc-use-1', calmOverrides(newGame('fc-use-1').map));
     s = performAction(s, { type: 'BUY_FORECAST_PACK' });
-    const before = { day: s.daysUsed, maxDays: s.maxDays };
+    const before = { day: s.daysUsed, maxDays: s.maxDays, cash: s.cash };
     s = performAction(s, { type: 'USE_FORECAST' });
     expect(s.daysUsed).toBe(before.day);
     expect(s.maxDays).toBe(before.maxDays);
+    expect(s.cash).toBe(before.cash);
     expect(s.forecastCharges).toBe(AFTER_BUY - 1);
   });
 
@@ -75,14 +113,48 @@ describe('天气预报：购买机制', () => {
     expect(s.lastForecast).toBeNull(); // 移动一天后失效
   });
 
-  it('daysUsed == maxDays 时购买会被必败检查禁止', () => {
+  it('即使 daysUsed == maxDays，购买仍只受现金限制（天数不再是成本）', () => {
     let s = newGame('fc-death');
     s = mutate(s, (m) => {
       m.daysUsed = 42;
       m.maxDays = 42;
+      m.cash = 1000;
     });
-    // v0.1.2a：购买将导致剩余时间不足 → 后台禁止购买，不进入对局
-    expect(() => performAction(s, { type: 'BUY_FORECAST_PACK' })).toThrow(GameError);
+    const s2 = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    expect(s2.maxDays).toBe(42);
+    expect(s2.cash).toBe(1000 - PRICE);
+    expect(s2.stats.forecastPacks).toBe(1);
+  });
+
+  it('预报只泄露自然天气：绝不暴露 Encounter（盗贼/商队/市集/牧民）的存在', () => {
+    const view = (() => {
+      let t = newGame('fc-noenc', calmOverrides(newGame('fc-noenc').map));
+      t = mutate(t, (mm) => {
+        for (const id of Object.keys(mm.map.tiles)) mm.map.encounters[id] = 'THIEF';
+      });
+      return performAction(t, { type: 'BUY_FORECAST_PACK' });
+    })();
+    const f = view.lastForecast!;
+    // 结构上只有 day + cells
+    expect(Object.keys(f)).toEqual(['day', 'cells']);
+    for (const c of f.cells) {
+      expect(Object.keys(c).sort()).toEqual(
+        ['col', 'dc', 'dr', 'isCurrent', 'row', 'terrainKnown', 'tileId', 'weather'].sort(),
+      );
+      expect(['SUNNY', 'CLOUDY', 'HEAT', 'SANDSTORM', 'RAINSTORM', 'MUD']).toContain(c.weather);
+    }
+    expect(JSON.stringify(f)).not.toMatch(/THIEF|CARAVAN|MARKET|HERDSMAN/);
+  });
+
+  it('预报内容与引擎真实天气表一致（未来天气正确）', () => {
+    let s = newGame('fc-truth', calmOverrides(newGame('fc-truth').map));
+    s = performAction(s, { type: 'BUY_FORECAST_PACK' });
+    const f = s.lastForecast!;
+    expect(f.day).toBe(s.daysUsed + 1);
+    for (const c of f.cells) {
+      // 与引擎内部真实表逐格比对（测试是白盒，允许读 map.weather）
+      expect(c.weather).toBe(s.map.weather[c.tileId][f.day - 1]);
+    }
   });
 });
 

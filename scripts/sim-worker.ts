@@ -15,10 +15,12 @@ interface Args {
   start: number;
   end: number;
   out: string;
+  /** bot = `${prefix}:${bot}:${i}`（旧行为）；shared = `${prefix}:${i}`（多 Bot 配对比较用） */
+  seedMode: 'bot' | 'shared';
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { bot: '', prefix: 'sim', start: 0, end: 0, out: '' };
+  const args: Args = { bot: '', prefix: 'sim', start: 0, end: 0, out: '', seedMode: 'bot' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--bot') args.bot = argv[++i];
@@ -26,6 +28,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--start') args.start = Number(argv[++i]);
     else if (a === '--end') args.end = Number(argv[++i]);
     else if (a === '--out') args.out = argv[++i];
+    else if (a === '--seedMode') args.seedMode = argv[++i] as Args['seedMode'];
     else throw new Error(`未知参数: ${a}`);
   }
   return args;
@@ -35,7 +38,9 @@ const args = parseArgs(process.argv.slice(2));
 const bot = BOT_BY_NAME[args.bot];
 if (!bot) throw new Error(`未知 Bot: ${args.bot}`);
 const seeds: string[] = [];
-for (let i = args.start; i < args.end; i++) seeds.push(`${args.prefix}:${args.bot}:${i}`);
+for (let i = args.start; i < args.end; i++) {
+  seeds.push(args.seedMode === 'shared' ? `${args.prefix}:${i}` : `${args.prefix}:${args.bot}:${i}`);
+}
 const results = runBatchSeeds(bot, seeds, 0);
 writeFileSync(args.out, JSON.stringify(results));
 process.stderr.write(`worker-done ${args.bot} [${args.start},${args.end})\n`);

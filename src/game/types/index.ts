@@ -311,8 +311,12 @@ export interface SettlementView {
 /* ------------------------------------------------------------------ */
 
 export interface GameStats {
-  /** 购买的天气预报包数量（每包 maxDays-1） */
+  /** 购买的天气预报包数量（现金计价：每包扣 forecast.packPrice 元，maxDays 不再变化） */
   forecastPacks: number;
+  /** 累计「发放」的预报次数 = 购买包数 × chargesPerPack（专项遥测用） */
+  forecastChargesGranted: number;
+  /** 累计「消耗」的预报次数（含购买后自动使用的那次与手动使用） */
+  forecastChargesUsed: number;
   /** 进入矿区当天的 daysUsed 快照（未进矿为 null） */
   outboundDays: number | null;
   miningDays: number;
@@ -328,7 +332,7 @@ export interface GameState {
   map: GameMap;
 
   daysUsed: number;
-  /** 最大旅程天数（购买天气预报包会永久 -1） */
+  /** 最大旅程天数。现金计价后购买天气预报包不再改变它（见 forecast.maxDaysCost = 0） */
   maxDays: number;
   phase: Phase;
   status: GameStatus;
@@ -348,8 +352,10 @@ export interface GameState {
   compasses: number;
   equipmentSpent: number;
 
-  /** 剩余天气预报次数（购买 +3，使用 -1，不过期） */
+  /** 剩余天气预报次数（购买 +chargesPerPack，使用 -1，不过期；可带入返程） */
   forecastCharges: number;
+  /** 累计花在天气预报包上的现金（专项遥测：与帐篷/指南针支出分开统计） */
+  forecastSpent: number;
 
   position: TileId;
   /** 锁定的矿区（进入矿区后设置） */

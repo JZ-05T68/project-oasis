@@ -331,6 +331,11 @@ export function ForecastModal({ game, onClose }: { game: GameState; onClose: () 
           );
         })}
       </div>
+      <p className="modal-desc" data-testid="forecast-remaining">
+        剩余预报次数{' '}
+        <b data-testid="forecast-remaining-count">{game.forecastCharges}</b> 次
+        （不会过期，可以带入返程；最大旅程天数不受影响）。
+      </p>
     </ModalShell>
   );
 }

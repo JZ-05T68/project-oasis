@@ -172,12 +172,40 @@ run_layout() {
   echo "场景 layout → $log"
 }
 
+# cashforecast 场景（v0.1.3 天气预报现金计价专项）：需要告知期望单价
+run_cashforecast() {
+  local log="$OUTDIR/cashforecast.log"
+  : >"$log"
+  {
+    echo "=== scene=cashforecast viewport=${WIDTH}x${HEIGHT} url=$URL expectPrice=${FC_PRICE:-200} ==="
+    agent-browser open "$URL"
+    agent-browser wait 1500
+    agent-browser set viewport "$WIDTH" "$HEIGHT"
+    agent-browser wait 400
+    agent-browser eval "$(cat scripts/e2e-audit-lib.js)"
+    agent-browser eval "window.__EXPECT_PRICE=${FC_PRICE:-200}"
+    agent-browser eval "$(cat scripts/e2e-audit-scene-cashforecast.js)"
+    for i in $(seq 1 200); do
+      local st
+      st=$(agent-browser eval "window.__AUDIT_DONE ? 'DONE' : 'WAIT'")
+      if echo "$st" | grep -q DONE; then break; fi
+      sleep 2
+    done
+    summarize cashforecast
+  } >"$log" 2>&1
+  echo "场景 cashforecast → $log"
+}
+
 if [ "$SCENE_ARG" = "layout" ]; then
   run_layout
   exit 0
 fi
 if [ "$SCENE_ARG" = "forecast" ]; then
   run_forecast
+  exit 0
+fi
+if [ "$SCENE_ARG" = "cashforecast" ]; then
+  run_cashforecast
   exit 0
 fi
 if [ "$SCENE_ARG" = "stormlabels" ] || [ "$SCENE_ARG" = "stormlabels2" ]; then
