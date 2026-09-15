@@ -63,10 +63,15 @@ describe('机制默认值（v0.1.4 正式落盘状态）', () => {
     expect(SNAPSHOT.mineProductivity.enabled).toBe(false);
   });
 
-  it('落盘后帐篷单价为 625（3 顶买得起 / 4 顶买不起）', () => {
-    expect(gameConfig.tentPrice).toBe(625);
-    expect(3 * gameConfig.tentPrice).toBeLessThanOrEqual(gameConfig.startCash);
-    expect(4 * gameConfig.tentPrice).toBeGreaterThan(gameConfig.startCash);
+  it('落盘后帐篷单价为 800（v0.3.0 重新标定：只能买 2 顶）', () => {
+    // v0.1.4 的原约束是「3 顶买得起、4 顶买不起」（价格须在 (500, 666]）。
+    // v0.3.0 修正 emergencyRescue.extraDays 的反向语义 Bug 后，合理玩家完成率回升到
+    // 82.63%，必须重新标定一个生存侧杠杆才能守住 §22 的 68~72%；装备定价是唯一
+    // 不在 §23 禁用清单里的手段（帐篷涨价 ⇒ 途中买不起补充帐篷 ⇒ 耐力死亡）。
+    // 代价：只能买 2 顶。这是显式取舍，不是笔误。
+    expect(gameConfig.tentPrice).toBe(800);
+    expect(2 * gameConfig.tentPrice).toBeLessThanOrEqual(gameConfig.startCash);
+    expect(3 * gameConfig.tentPrice).toBeGreaterThan(gameConfig.startCash);
   });
 
   it('全部机制关闭时：产量恒为 gemPerMiningDay，事故概率恒为 0', () => {

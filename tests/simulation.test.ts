@@ -20,7 +20,12 @@ describe('v0.1.2 FairView 防作弊', () => {
     expect(Object.keys(view.knownOasisDrought).sort()).toEqual([...oasisExplored].sort());
   });
 
-  it('未知地形在 FairView 中为 null（战争迷雾），矿区价格公开可见', () => {
+  /**
+   * v0.3.0 修正：规则页 §十一 写的是「游戏全程**不显示**矿区精确单价，成功返城后进行
+   * 最终鉴定」。原测试却断言 FairView 公开全部矿区单价 —— 那是把 H10 隐藏价格泄漏
+   * 当成了预期行为，会让 Bot 在"全知价格"下做经济决策。这里改为断言**不得泄漏**。
+   */
+  it('未知地形在 FairView 中为 null（战争迷雾），矿区精确单价不泄漏（§34 H10）', () => {
     const state = createNewGame('fair-2');
     const view = buildFairView(state);
     const unknown = Object.values(view.map.tiles).find((t) => t.terrain === null)!;
@@ -28,10 +33,16 @@ describe('v0.1.2 FairView 防作弊', () => {
     expect(view.map.tiles[state.map.cityId].terrain).toBe('CITY');
     for (const mine of view.map.mines) {
       expect(view.map.tiles[mine.tileId].terrain).toBe('MINE');
-      expect(view.map.tiles[mine.tileId].minePrice).toBe(mine.gemPrice);
-      expect(mine.gemPrice).toBeGreaterThanOrEqual(80);
-      expect(mine.gemPrice).toBeLessThanOrEqual(320);
+      // 精确单价与随机扰动不得进入玩家视角
+      expect(view.map.tiles[mine.tileId].minePrice).toBeUndefined();
+      expect((mine as unknown as Record<string, unknown>).gemPrice).toBeUndefined();
+      expect((mine as unknown as Record<string, unknown>).detail).toBeUndefined();
+      // 但客观难度分（玩家站在地图前可自行估出的量）仍然是公开的
+      expect(typeof mine.difficultyScore).toBe('number');
     }
+    // 玩家唯一的货值依据是"城里打听得到的行情参考价"，不是任何矿区的真实单价
+    expect(view.rules.marketReferencePrice).toBeGreaterThan(0);
+    expect(view.gemPrice).toBeNull();
   });
 
   it('所有 Bot 决策过程不访问禁用信息（Proxy 访问记录）', () => {

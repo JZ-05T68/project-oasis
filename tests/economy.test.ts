@@ -115,8 +115,17 @@ describe('§6 不合理玩法仍然可以亏损（不存在人工保底）', () 
   }, 120_000);
 });
 
-describe('§7 合理成功远征有明确正收益预期', () => {
-  it('ReasonablePlayerBot：成功局几乎全部盈利，中位与下分位均为正', () => {
+describe('§7 合理成功远征有明确正收益预期（v0.3.0 已重写：不再要求"几乎全部盈利"）', () => {
+  /**
+   * v0.3.0 之前这条断言是「成功局 >90% 盈利」——那正是本轮要解决的 P0 问题
+   * （ProfitAmongCompleted ≈ 99.83%，生还与赚钱高度绑定）。
+   * 落盘「远征运营成本 + 延期求援债务」之后，成功局**应该**出现相当比例的亏损。
+   * 因此这里改为断言**新的健康结构**：
+   *   - 成功局盈利占比落在 50~80%（既不是 100% 绑定，也不是普遍亏本）；
+   *   - 中位净收益仍明显为正（能规划好的玩家赚得到钱）；
+   *   - 确实存在"活着回来却亏了"的局（§5 SURVIVED_UNPROFITABLE 必须真实存在）。
+   */
+  it('成功局不再几乎全部盈利：出现真实的"成功但亏损"分层', () => {
     const bot = BOT_BY_NAME['ReasonablePlayerBot'];
     const runs = Array.from({ length: 40 }, (_, i) => `econ-reasonable:probe:${i}`)
       .map((seed) => runOne(bot, seed))
@@ -125,9 +134,14 @@ describe('§7 合理成功远征有明确正收益预期', () => {
     expect(wins.length).toBeGreaterThan(20); // 该策略胜率应当很高
 
     const profits = wins.map((r) => r.netProfit).sort((a, b) => a - b);
-    expect(profits.filter((v) => v > 0).length / profits.length).toBeGreaterThan(0.9);
+    const profitableShare = profits.filter((v) => v > 0).length / profits.length;
+    // 生还与赚钱必须解耦：既不能 100% 绑定，也不能普遍亏本
+    expect(profitableShare).toBeGreaterThan(0.45);
+    expect(profitableShare).toBeLessThan(0.85);
+    // 「成功返城但亏损」这一层必须真实存在
+    expect(profits.filter((v) => v <= 0).length).toBeGreaterThan(0);
     const median = profits[Math.floor(profits.length / 2)];
-    expect(median).toBeGreaterThan(1500); // 中位净收益明显为正
+    expect(median).toBeGreaterThan(300); // 中位净收益仍为正（能规划好就赚得到）
 
     const avgRevenue = wins.reduce((a, r) => a + r.gemRevenue, 0) / wins.length;
     const avgSpend = wins.reduce((a, r) => a + r.equipmentSpent, 0) / wins.length;

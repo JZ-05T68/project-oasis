@@ -27,7 +27,10 @@ describe('结算：胜利', () => {
     expect(v.gemPrice).not.toBeNull(); // 胜利后公布
     expect(v.gemPrice).toBe(s.map.mines.find((m) => m.tileId === mine.tileId)!.gemPrice);
     expect(v.gemRevenue).toBe(4 * v.gemPrice!);
-    expect(v.finalAssets).toBe(s.cash + 4 * v.gemPrice!);
+    // v0.3.0：最终现金 = 现金 + 宝石净收入 − 结算期费用（这里体现为远征运营成本）
+    expect(v.finalAssets).toBe(s.cash + 4 * v.gemPrice! - v.settlementExpenses);
+    expect(v.settlementExpenses).toBe(v.operatingCost);
+    expect(v.accountingOk).toBe(true);
     expect(v.netProfit).toBe(v.finalAssets - 2000);
     expect(v.mineSlot).toBe(mine.slot);
   });
