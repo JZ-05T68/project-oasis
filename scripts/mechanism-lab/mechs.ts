@@ -66,7 +66,7 @@ function prod(scaleA: number, scaleB: number, reveal: 'start' | 'arrival' = 'sta
   return { mechanisms: { mineProductivity: { enabled: true, scaleA, scaleB, reveal } } };
 }
 
-function merge(...patches: Array<Record<string, unknown>>): Record<string, unknown> {
+export function merge(...patches: Array<Record<string, unknown>>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const p of patches) {
     for (const [k, v] of Object.entries(p)) {
